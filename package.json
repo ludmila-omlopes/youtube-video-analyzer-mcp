@@ -27,7 +27,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js",
+    "start": "node bin/youtube-video-analyzer-mcp.js",
     "test": "npm run build && node dist/test/index.js"
   },
   "keywords": [
@@ -51,5 +51,3 @@
     "typescript": "^5.9.3"
   }
 }
-
-

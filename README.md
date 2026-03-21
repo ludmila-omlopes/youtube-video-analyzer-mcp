@@ -13,6 +13,7 @@ An MCP `stdio` server that uses Google Gemini to analyze public YouTube videos b
 - Structured stderr logging with request correlation IDs for long-running tool diagnostics
 - Safe MCP error payloads with machine-readable `code`, `stage`, and strategy metadata
 - Optional custom JSON schema support for final outputs
+- `youtube-video-analyzer-mcp setup` for saving user-level config when using the npm package directly
 
 ## Project layout
 
@@ -31,6 +32,7 @@ An MCP `stdio` server that uses Google Gemini to analyze public YouTube videos b
 - A Gemini API key
 - A public YouTube video URL
 - `yt-dlp` installed locally for the long-video tool, either as a binary or via `python -m yt_dlp`
+- `ffmpeg` if your `yt-dlp` setup needs it to merge adaptive video/audio downloads
 
 ## Setup
 
@@ -56,15 +58,51 @@ An MCP `stdio` server that uses Google Gemini to analyze public YouTube videos b
 
 ## Running locally
 
+For normal local development:
+
 ```bash
 npm run dev
 ```
 
-Or use the compiled build:
+For the built package entrypoint behavior:
 
 ```bash
-npm run start
+npm run build
+npm start
 ```
+
+## Using the npm package
+
+Run it without installing globally:
+
+```bash
+npx -y @ludylops/youtube-video-analyzer-mcp
+```
+
+Or install it globally:
+
+```bash
+npm install -g @ludylops/youtube-video-analyzer-mcp
+youtube-video-analyzer-mcp
+```
+
+To save your API key and optional defaults in a user config file:
+
+```bash
+youtube-video-analyzer-mcp setup
+```
+
+The setup command writes a config file in the standard user config location:
+
+- Windows: `%APPDATA%/youtube-video-analyzer-mcp/config.json`
+- macOS/Linux: `~/.config/youtube-video-analyzer-mcp/config.json`
+
+Config precedence is:
+
+1. Explicit environment variables
+2. Local `.env`
+3. User config file created by `setup`
+4. Built-in defaults
 
 ## MCP configuration example
 
@@ -74,8 +112,8 @@ Replace the example path below with the absolute path to your own built `dist/in
 {
   "mcpServers": {
     "youtube-analyzer": {
-      "command": "node",
-      "args": ["/absolute/path/to/youtube-video-analyzer-mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@ludylops/youtube-video-analyzer-mcp"],
       "env": {
         "GEMINI_API_KEY": "your_gemini_api_key_here",
         "GEMINI_MODEL": "gemini-2.5-pro",
@@ -85,6 +123,8 @@ Replace the example path below with the absolute path to your own built `dist/in
   }
 }
 ```
+
+If you prefer a locally built checkout instead of npm, use `node` plus the absolute path to your own built `dist/index.js`.
 
 ## Tool behavior
 
@@ -165,4 +205,3 @@ Inputs:
 - If `YT_DLP_PATH` is not set, the server will try `python -m yt_dlp` automatically.
 - Cache reuse is an optimization for repeated analysis on the same uploaded asset; it does not increase the effective model context window.
 - Sessions are stored in memory only and disappear if the MCP server restarts.
-

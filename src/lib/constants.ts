@@ -1,3 +1,6 @@
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import process from "node:process";
 
 export const SERVER_INFO = {
@@ -42,3 +45,109 @@ export const MODEL_INPUT_TOKEN_LIMITS: Record<string, number> = {
   "gemini-3.1-flash-lite-preview": 1_048_576,
 };
 
+export const USER_CONFIG_DIR_NAME = "youtube-video-analyzer-mcp";
+export const RUNTIME_ENV_KEYS = ["GEMINI_API_KEY", "GEMINI_MODEL", "YT_DLP_PATH"] as const;
+
+export type RuntimeEnvKey = (typeof RUNTIME_ENV_KEYS)[number];
+export type UserConfig = Partial<Record<RuntimeEnvKey, string>>;
+
+type ConfigPathOptions = {
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
+  homedir?: string;
+};
+
+function sanitizeConfigValue(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+export function getUserConfigPath(options: ConfigPathOptions = {}): string {
+  const platform = options.platform ?? process.platform;
+  const env = options.env ?? process.env;
+  const homedir = options.homedir ?? os.homedir();
+
+  if (platform === "win32") {
+    const baseDir = env.APPDATA || path.win32.join(homedir, "AppData", "Roaming");
+    return path.win32.join(baseDir, USER_CONFIG_DIR_NAME, "config.json");
+  }
+
+  const baseDir = env.XDG_CONFIG_HOME || path.posix.join(homedir, ".config");
+  return path.posix.join(baseDir, USER_CONFIG_DIR_NAME, "config.json");
+}
+
+export async function readUserConfigFile(configPath: string): Promise<UserConfig> {
+  try {
+    const raw = await fs.readFile(configPath, "utf8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Config file must contain a JSON object.");
+    }
+
+    const config: UserConfig = {};
+    for (const key of RUNTIME_ENV_KEYS) {
+      const value = sanitizeConfigValue(parsed[key]);
+      if (value) {
+        config[key] = value;
+      }
+    }
+
+    return config;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
+      return {};
+    }
+
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read config file at ${configPath}: ${message}`);
+  }
+}
+
+export function applyUserConfigToEnv(config: UserConfig, env: NodeJS.ProcessEnv = process.env): void {
+  for (const key of RUNTIME_ENV_KEYS) {
+    if (!env[key] && config[key]) {
+      env[key] = config[key];
+    }
+  }
+}
+
+export async function writeUserConfigFile(configPath: string, config: UserConfig): Promise<void> {
+  const cleanedConfig = Object.fromEntries(
+    RUNTIME_ENV_KEYS.map((key) => [key, sanitizeConfigValue(config[key])]).filter(
+      (entry): entry is [RuntimeEnvKey, string] => Boolean(entry[1])
+    )
+  );
+
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, `${JSON.stringify(cleanedConfig, null, 2)}\n`, "utf8");
+}
+
+export function formatMissingApiKeyGuidance(configPath: string): string {
+  return [
+    "Missing GEMINI_API_KEY.",
+    "",
+    "Set it in one of these ways:",
+    "1. Run `youtube-video-analyzer-mcp setup` to create a user config file.",
+    "2. Pass it in your MCP client `env` configuration.",
+    "3. Export it in your shell before starting the server.",
+    "",
+    `User config path: ${configPath}`,
+    "",
+    "Example MCP config:",
+    "{",
+    '  "mcpServers": {',
+    '    "youtube-analyzer": {',
+    '      "command": "npx",',
+    '      "args": ["-y", "@ludylops/youtube-video-analyzer-mcp"],',
+    '      "env": {',
+    '        "GEMINI_API_KEY": "your_key_here"',
+    "      }",
+    "    }",
+    "  }",
+    "}",
+  ].join("\n");
+}
