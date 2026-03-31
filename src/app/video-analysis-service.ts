@@ -1,6 +1,7 @@
 import type { GoogleGenAI } from "@google/genai";
 
 import {
+  analyzeYouTubeVideoAudio,
   analyzeLongVideo,
   analyzeShortVideo,
   continueLongVideoAnalysis,
@@ -8,6 +9,8 @@ import {
 } from "../lib/analysis.js";
 import { DiagnosticError } from "../lib/errors.js";
 import type {
+  AudioToolInput,
+  AudioToolOutput,
   FollowUpToolInput,
   FollowUpToolOutput,
   LongToolInput,
@@ -19,7 +22,6 @@ import type {
 } from "../lib/schemas.js";
 import { fetchYouTubeVideoMetadata } from "../lib/youtube-metadata.js";
 import { normalizeYouTubeUrl } from "../lib/youtube.js";
-import { getLongVideoRuntimeCapabilities } from "../lib/youtube.js";
 import type { AnalysisSessionStore } from "./session-store.js";
 
 export type VideoAnalysisServiceDeps = {
@@ -30,9 +32,24 @@ export type VideoAnalysisServiceDeps = {
 
 export interface VideoAnalysisServiceLike {
   analyzeShort(input: ShortToolInput, context: AnalysisExecutionContext): Promise<ShortToolOutput>;
+  analyzeAudio(input: AudioToolInput, context: AnalysisExecutionContext): Promise<AudioToolOutput>;
   analyzeLong(input: LongToolInput, context: AnalysisExecutionContext): Promise<LongToolOutput>;
   continueLong(input: FollowUpToolInput, context: AnalysisExecutionContext): Promise<FollowUpToolOutput>;
   getYouTubeMetadata(input: MetadataToolInput, context: AnalysisExecutionContext): Promise<MetadataToolOutput>;
+}
+
+export function applyLongVideoInputRuntimePolicy(
+  input: LongToolInput,
+  runtimeMode: "local" | "cloud"
+): LongToolInput {
+  if (runtimeMode !== "cloud" || input.strategy === "url_chunks") {
+    return input;
+  }
+
+  return {
+    ...input,
+    strategy: "url_chunks",
+  };
 }
 
 export class VideoAnalysisService implements VideoAnalysisServiceLike {
@@ -46,12 +63,21 @@ export class VideoAnalysisService implements VideoAnalysisServiceLike {
     return analyzeShortVideo(this.deps.ai, input, context);
   }
 
+  async analyzeAudio(input: AudioToolInput, context: AnalysisExecutionContext): Promise<AudioToolOutput> {
+    return analyzeYouTubeVideoAudio(this.deps.ai, input, context);
+  }
+
   async analyzeLong(input: LongToolInput, context: AnalysisExecutionContext): Promise<LongToolOutput> {
-    if (this.runtimeMode === "cloud") {
-      await this.assertCloudLongVideoRuntime(input, context);
+    const effectiveInput = applyLongVideoInputRuntimePolicy(input, this.runtimeMode);
+
+    if (effectiveInput !== input) {
+      context.logger.info("long_video.cloud_strategy_forced", {
+        requestedStrategy: input.strategy ?? "auto",
+        effectiveStrategy: effectiveInput.strategy,
+      });
     }
 
-    return analyzeLongVideo(this.deps.ai, this.deps.sessionStore, input, context);
+    return analyzeLongVideo(this.deps.ai, this.deps.sessionStore, effectiveInput, context);
   }
 
   async continueLong(input: FollowUpToolInput, context: AnalysisExecutionContext): Promise<FollowUpToolOutput> {
@@ -74,33 +100,6 @@ export class VideoAnalysisService implements VideoAnalysisServiceLike {
       youtubeUrl: input.youtubeUrl,
       normalizedYoutubeUrl,
       signal: context.abortSignal,
-    });
-  }
-
-  private async assertCloudLongVideoRuntime(
-    input: LongToolInput,
-    context: AnalysisExecutionContext
-  ): Promise<void> {
-    const strategyRequested = input.strategy ?? "auto";
-    if (strategyRequested !== "uploaded_file") {
-      return;
-    }
-
-    const capabilities = await getLongVideoRuntimeCapabilities(strategyRequested);
-
-    if (capabilities.supported) {
-      return;
-    }
-
-    throw new DiagnosticError({
-      tool: context.tool,
-      code: "LONG_VIDEO_RUNTIME_UNAVAILABLE",
-      stage: "download",
-      message: "Cloud runtime is missing required dependencies for long-video analysis.",
-      retryable: false,
-      strategyRequested,
-      strategyAttempted: "uploaded_file",
-      details: capabilities,
     });
   }
 }

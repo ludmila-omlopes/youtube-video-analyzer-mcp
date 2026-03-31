@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 
-import { buildFollowUpPrompt, buildPrompt } from "../lib/gemini.js";
-import { defaultAnalysisSchema } from "../lib/schemas.js";
+import { buildAudioAnalysisPrompt, buildFollowUpPrompt, buildPrompt } from "../lib/gemini.js";
+import { defaultAnalysisSchema, defaultAudioAnalysisSchema } from "../lib/schemas.js";
 
 export async function run(): Promise<void> {
   const prompt = buildPrompt();
@@ -12,7 +12,15 @@ export async function run(): Promise<void> {
   const followUpPrompt = buildFollowUpPrompt("Continue");
   assert.match(followUpPrompt, /Continue using the dominant language of the video/i);
 
+  const audioPrompt = buildAudioAnalysisPrompt();
+  assert.match(audioPrompt, /using only the audio track/i);
+  assert.match(audioPrompt, /Ignore visual-only evidence/i);
+  assert.match(audioPrompt, /timestamped transcript segments/i);
+
   const properties = defaultAnalysisSchema.properties as Record<string, unknown>;
   assert.ok(Object.hasOwn(properties, "detectedLanguage"));
   assert.deepEqual(defaultAnalysisSchema.required[0], "detectedLanguage");
+
+  const audioProperties = defaultAudioAnalysisSchema.properties as Record<string, unknown>;
+  assert.ok(Object.hasOwn(audioProperties, "transcriptSegments"));
 }

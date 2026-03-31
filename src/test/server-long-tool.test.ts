@@ -12,6 +12,9 @@ export async function run(): Promise<void> {
       async analyzeShort() {
         throw new Error("Not used");
       },
+      async analyzeAudio() {
+        throw new Error("Not used");
+      },
       async analyzeLong(input, context) {
         assert.equal(context.tool, "analyze_long_youtube_video");
         return {

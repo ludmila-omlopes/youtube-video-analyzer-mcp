@@ -40,6 +40,50 @@ export const defaultAnalysisSchema = {
   ],
 } as const;
 
+export const defaultAudioAnalysisSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    detectedLanguage: {
+      type: "string",
+      description: "Dominant spoken language in the audio, preferably as a BCP-47 tag such as en, pt-BR, or ja. Use und if uncertain.",
+    },
+    summary: { type: "string" },
+    topics: { type: "array", items: { type: "string" } },
+    transcriptSegments: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          timestamp: { type: "string" },
+          transcript: {
+            type: "string",
+            description: "Brief transcript excerpt for an important spoken segment. Keep it short, not a full transcript.",
+          },
+          translation: {
+            type: "string",
+            description: "English translation when useful; otherwise return an empty string.",
+          },
+        },
+        required: ["timestamp", "transcript", "translation"],
+      },
+    },
+    notableQuotes: { type: "array", items: { type: "string" } },
+    actionItems: { type: "array", items: { type: "string" } },
+    safetyOrAccuracyNotes: { type: "array", items: { type: "string" } },
+  },
+  required: [
+    "detectedLanguage",
+    "summary",
+    "topics",
+    "transcriptSegments",
+    "notableQuotes",
+    "actionItems",
+    "safetyOrAccuracyNotes",
+  ],
+} as const;
+
 export const chunkAnalysisSchema = {
   type: "object",
   additionalProperties: false,
@@ -70,6 +114,19 @@ export const chunkAnalysisSchema = {
 } as const;
 
 export const shortToolInputSchema = {
+  youtubeUrl: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => normalizeYouTubeUrl(value) !== null, "youtubeUrl must be a valid YouTube URL"),
+  analysisPrompt: z.string().trim().min(1).max(6000).optional(),
+  startOffsetSeconds: z.number().finite().min(0).optional(),
+  endOffsetSeconds: z.number().finite().min(0).optional(),
+  model: z.string().trim().min(1).optional(),
+  responseSchemaJson: z.string().trim().min(2).optional(),
+} satisfies z.ZodRawShape;
+
+export const audioToolInputSchema = {
   youtubeUrl: z
     .string()
     .trim()
@@ -183,6 +240,15 @@ export const shortToolOutputSchema = {
   analysis: jsonObjectSchema,
 } satisfies z.ZodRawShape;
 
+export const audioToolOutputSchema = {
+  model: z.string(),
+  youtubeUrl: z.string(),
+  normalizedYoutubeUrl: z.string(),
+  clip: clipSchema,
+  usedCustomSchema: z.boolean(),
+  analysis: jsonObjectSchema,
+} satisfies z.ZodRawShape;
+
 export const longToolOutputSchema = {
   youtubeUrl: z.string(),
   normalizedYoutubeUrl: z.string(),
@@ -240,18 +306,23 @@ export const metadataToolOutputSchema = {
 } satisfies z.ZodRawShape;
 
 export type ShortToolInput = z.infer<z.ZodObject<typeof shortToolInputSchema>>;
+export type AudioToolInput = z.infer<z.ZodObject<typeof audioToolInputSchema>>;
 export type LongToolInput = z.infer<z.ZodObject<typeof longToolInputSchema>>;
 export type FollowUpToolInput = z.infer<z.ZodObject<typeof followUpToolInputSchema>>;
 export type MetadataToolInput = z.infer<z.ZodObject<typeof metadataToolInputSchema>>;
 
 export type ShortToolOutput = z.infer<z.ZodObject<typeof shortToolOutputSchema>>;
+export type AudioToolOutput = z.infer<z.ZodObject<typeof audioToolOutputSchema>>;
 export type LongToolOutput = z.infer<z.ZodObject<typeof longToolOutputSchema>>;
 export type FollowUpToolOutput = z.infer<z.ZodObject<typeof followUpToolOutputSchema>>;
 export type MetadataToolOutput = z.infer<z.ZodObject<typeof metadataToolOutputSchema>>;
 
-export function parseSchema(responseSchemaJson?: string): Record<string, unknown> {
+export function parseSchema(
+  responseSchemaJson?: string,
+  fallbackSchema: Record<string, unknown> = defaultAnalysisSchema as Record<string, unknown>
+): Record<string, unknown> {
   if (!responseSchemaJson) {
-    return defaultAnalysisSchema as Record<string, unknown>;
+    return fallbackSchema;
   }
 
   try {

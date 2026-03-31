@@ -14,6 +14,7 @@
   },
   "files": [
     "bin",
+    "dist/dev",
     "dist/index.js",
     "dist/server.js",
     "dist/app",
@@ -26,11 +27,15 @@
   "publishConfig": {
     "access": "public"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "dev:hosted": "tsx src/dev/hosted.ts",
     "release:check": "node scripts/release-check.mjs",
+    "start:http": "node dist/dev/hosted.js",
     "start": "node bin/youtube-video-analyzer-mcp.js",
     "test": "npm run build && node dist/test/index.js"
   },

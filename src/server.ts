@@ -9,6 +9,8 @@ import { DEFAULT_TASK_TTL_MS, SERVER_INFO } from "./lib/constants.js";
 import { asDiagnosticError } from "./lib/errors.js";
 import { createRequestLogger, type Logger } from "./lib/logger.js";
 import {
+  audioToolInputSchema,
+  audioToolOutputSchema,
   followUpToolInputSchema,
   followUpToolOutputSchema,
   formatJson,
@@ -319,6 +321,59 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           details: diagnostic.details,
         });
         return createErrorToolResult("analyze_youtube_video", logger.requestId, diagnostic);
+      }
+    }
+  );
+
+  server.registerTool(
+    "analyze_youtube_video_audio",
+    {
+      title: "Analyze YouTube Video From Audio",
+      description: [
+        "Analyze a public YouTube video using only the audio track and transcript-like understanding from Gemini.",
+        "The YouTube URL is normalized to a canonical watch URL and sent as media input, but the prompt explicitly ignores visual-only evidence and focuses on spoken content, audible cues, and timestamped transcript excerpts.",
+      ].join(" "),
+      inputSchema: audioToolInputSchema,
+      outputSchema: audioToolOutputSchema,
+    },
+    async ({ youtubeUrl, analysisPrompt, startOffsetSeconds, endOffsetSeconds, model, responseSchemaJson }, extra) => {
+      const logger = createRequestLogger("analyze_youtube_video_audio");
+      const startedAt = Date.now();
+      logger.info("tool.start", {
+        youtubeUrl,
+        startOffsetSeconds: startOffsetSeconds ?? null,
+        endOffsetSeconds: endOffsetSeconds ?? null,
+        model: model ?? null,
+      });
+
+      try {
+        const result = await service.analyzeAudio(
+          { youtubeUrl, analysisPrompt, startOffsetSeconds, endOffsetSeconds, model, responseSchemaJson },
+          createExecutionContext("analyze_youtube_video_audio", logger, extra.signal)
+        );
+
+        logger.info("tool.success", {
+          durationMs: Date.now() - startedAt,
+          model: result.model,
+        });
+        return createSuccessToolResult(result);
+      } catch (error) {
+        const diagnostic = asDiagnosticError(error, {
+          tool: "analyze_youtube_video_audio",
+          code: "AUDIO_ONLY_VIDEO_ANALYSIS_FAILED",
+          stage: "unknown",
+          message: "Audio-only video analysis failed.",
+        });
+        logger.error("tool.failure", {
+          durationMs: Date.now() - startedAt,
+          code: diagnostic.code,
+          stage: diagnostic.stage,
+          message: diagnostic.message,
+          retryable: diagnostic.retryable,
+          causeMessage: diagnostic.causeMessage,
+          details: diagnostic.details,
+        });
+        return createErrorToolResult("analyze_youtube_video_audio", logger.requestId, diagnostic);
       }
     }
   );

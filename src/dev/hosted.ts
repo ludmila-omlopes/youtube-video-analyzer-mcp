@@ -1,6 +1,12 @@
 import "dotenv/config";
 
-import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
+import type { IncomingHttpHeaders } from "node:http";
+import {
+  createServer as createHttpServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
@@ -8,12 +14,45 @@ import { handleMcpHttpRequest } from "../http/mcp.js";
 
 type RouteHandler = (request: Request) => Promise<Response>;
 
-const HOST = process.env.HOSTED_DEV_HOST || "127.0.0.1";
-const PORT = Number(process.env.HOSTED_DEV_PORT || "3010");
+export function getHostedServerConfig(
+  env: NodeJS.ProcessEnv = process.env
+): { host: string; port: number } {
+  const rawPort = env.PORT || env.HOSTED_DEV_PORT || "3010";
+  const parsedPort = Number(rawPort);
+  const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 3010;
+  const host = env.HOSTED_DEV_HOST || env.HOST || (env.PORT ? "0.0.0.0" : "127.0.0.1");
+
+  return { host, port };
+}
+
+const { host: HOST, port: PORT } = getHostedServerConfig();
+
+function pickHeaderValue(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value;
+}
+
+function pickForwardedValue(value: string | undefined): string | undefined {
+  return value?.split(",")[0]?.trim() || undefined;
+}
+
+export function getPublicOriginFromHeaders(
+  headers: IncomingHttpHeaders,
+  fallbackHost: string
+): string {
+  const forwardedProto = pickForwardedValue(pickHeaderValue(headers["x-forwarded-proto"]));
+  const forwardedHost = pickForwardedValue(pickHeaderValue(headers["x-forwarded-host"]));
+  const host = forwardedHost || pickHeaderValue(headers.host) || fallbackHost;
+  const protocol = forwardedProto || "http";
+
+  return `${protocol}://${host}`;
+}
 
 function getOrigin(request: IncomingMessage): string {
-  const host = request.headers.host ?? `${HOST}:${PORT}`;
-  return `http://${host}`;
+  return getPublicOriginFromHeaders(request.headers, `${HOST}:${PORT}`);
 }
 
 async function readRequestBody(request: IncomingMessage): Promise<Buffer | undefined> {
@@ -89,6 +128,20 @@ function notFound(): Response {
   });
 }
 
+function healthCheck(): Response {
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+}
+
+function getMcpUrl(request: Request): string {
+  const url = new URL(request.url);
+  url.pathname = "/api/mcp";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
 export function resolveRoute(pathname: string, method: string): RouteHandler | Response {
   if (pathname === "/api/mcp") {
     if (method === "GET") {
@@ -106,12 +159,20 @@ export function resolveRoute(pathname: string, method: string): RouteHandler | R
     return methodNotAllowed(["GET", "POST", "DELETE"]);
   }
 
+  if (pathname === "/healthz") {
+    if (method === "GET") {
+      return async () => healthCheck();
+    }
+
+    return methodNotAllowed(["GET"]);
+  }
+
   if (pathname === "/" || pathname === "") {
-    return async () =>
+    return async (request) =>
       new Response(
         JSON.stringify({
           ok: true,
-          mcpUrl: `http://${HOST}:${PORT}/api/mcp`,
+          mcpUrl: getMcpUrl(request),
         }),
         {
           headers: { "content-type": "application/json; charset=utf-8" },
@@ -143,8 +204,33 @@ export function createHostedDevServer() {
   });
 }
 
+function installShutdownHandlers(server: Server): void {
+  let shuttingDown = false;
+
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+    console.log(`Received ${signal}, closing hosted HTTP server`);
+    server.close((error) => {
+      if (error) {
+        console.error(error);
+        process.exitCode = 1;
+      }
+
+      process.exit();
+    });
+  };
+
+  process.once("SIGINT", () => shutdown("SIGINT"));
+  process.once("SIGTERM", () => shutdown("SIGTERM"));
+}
+
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const server = createHostedDevServer();
+  installShutdownHandlers(server);
   server.listen(PORT, HOST, () => {
     console.log(`Hosted local server listening on http://${HOST}:${PORT}`);
     console.log(`MCP endpoint: http://${HOST}:${PORT}/api/mcp`);

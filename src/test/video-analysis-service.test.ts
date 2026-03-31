@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 
 import { InMemoryAnalysisSessionStore } from "../app/session-store.js";
-import { VideoAnalysisService } from "../app/video-analysis-service.js";
-import { DiagnosticError } from "../lib/errors.js";
+import { applyLongVideoInputRuntimePolicy, VideoAnalysisService } from "../app/video-analysis-service.js";
 import { testLogger } from "./test-helpers.js";
 
 export async function run(): Promise<void> {
@@ -51,6 +50,54 @@ export async function run(): Promise<void> {
     topics: [],
     keyMoments: [],
     notableQuotes: [],
+    actionItems: [],
+    safetyOrAccuracyNotes: [],
+  });
+
+  const audioService = new VideoAnalysisService({
+    ai: {
+      models: {
+        generateContent: async () => ({
+          text: JSON.stringify({
+            detectedLanguage: "en",
+            summary: "audio summary",
+            topics: ["topic"],
+            transcriptSegments: [
+              {
+                timestamp: "00:12",
+                transcript: "Short excerpt.",
+                translation: "",
+              },
+            ],
+            notableQuotes: ["Short excerpt."],
+            actionItems: [],
+            safetyOrAccuracyNotes: [],
+          }),
+        }),
+      },
+    } as never,
+    sessionStore,
+  });
+
+  const audioResult = await audioService.analyzeAudio(
+    { youtubeUrl: "https://youtu.be/test", analysisPrompt: "Focus on spoken claims" },
+    { logger: testLogger, tool: "analyze_youtube_video_audio" }
+  );
+
+  assert.equal(audioResult.model, "gemini-3-flash-preview");
+  assert.equal(audioResult.normalizedYoutubeUrl, "https://www.youtube.com/watch?v=test");
+  assert.deepEqual(audioResult.analysis, {
+    detectedLanguage: "en",
+    summary: "audio summary",
+    topics: ["topic"],
+    transcriptSegments: [
+      {
+        timestamp: "00:12",
+        transcript: "Short excerpt.",
+        translation: "",
+      },
+    ],
+    notableQuotes: ["Short excerpt."],
     actionItems: [],
     safetyOrAccuracyNotes: [],
   });
@@ -112,74 +159,25 @@ export async function run(): Promise<void> {
     globalThis.fetch = previousFetch;
   }
 
-  const previousYtDlpPath = process.env.YT_DLP_PATH;
-  process.env.YT_DLP_PATH = "definitely-missing-yt-dlp-command";
+  const cloudAutoInput = {
+    youtubeUrl: "https://www.youtube.com/watch?v=test",
+    analysisPrompt: "Analyze",
+  };
+  assert.deepEqual(applyLongVideoInputRuntimePolicy(cloudAutoInput, "cloud"), {
+    ...cloudAutoInput,
+    strategy: "url_chunks",
+  });
 
-  try {
-    const cloudService = new VideoAnalysisService({
-      ai: ai as never,
-      sessionStore: new InMemoryAnalysisSessionStore(),
-      runtimeMode: "cloud",
-    });
-
-    await assert.rejects(
-      () =>
-        (cloudService as unknown as {
-          assertCloudLongVideoRuntime: (
-            input: { youtubeUrl: string; analysisPrompt: string; strategy?: "uploaded_file" | "auto" | "url_chunks" },
-            context: { logger: typeof testLogger; tool: string }
-          ) => Promise<void>;
-        }).assertCloudLongVideoRuntime(
-          {
-            youtubeUrl: "https://www.youtube.com/watch?v=test",
-            analysisPrompt: "Analyze",
-            strategy: "uploaded_file",
-          },
-          { logger: testLogger, tool: "analyze_long_youtube_video" }
-        ),
-      (error: unknown) => {
-        assert.ok(error instanceof DiagnosticError);
-        assert.equal(error.code, "LONG_VIDEO_RUNTIME_UNAVAILABLE");
-        return true;
-      }
-    );
-
-    await assert.doesNotReject(() =>
-      (cloudService as unknown as {
-        assertCloudLongVideoRuntime: (
-          input: { youtubeUrl: string; analysisPrompt: string; strategy?: "uploaded_file" | "auto" | "url_chunks" },
-          context: { logger: typeof testLogger; tool: string }
-        ) => Promise<void>;
-      }).assertCloudLongVideoRuntime(
-        {
-          youtubeUrl: "https://www.youtube.com/watch?v=test",
-          analysisPrompt: "Analyze",
-          strategy: "auto",
-        },
-        { logger: testLogger, tool: "analyze_long_youtube_video" }
-      )
-    );
-
-    await assert.doesNotReject(() =>
-      (cloudService as unknown as {
-        assertCloudLongVideoRuntime: (
-          input: { youtubeUrl: string; analysisPrompt: string; strategy?: "uploaded_file" | "auto" | "url_chunks" },
-          context: { logger: typeof testLogger; tool: string }
-        ) => Promise<void>;
-      }).assertCloudLongVideoRuntime(
-        {
-          youtubeUrl: "https://www.youtube.com/watch?v=test",
-          analysisPrompt: "Analyze",
-          strategy: "url_chunks",
-        },
-        { logger: testLogger, tool: "analyze_long_youtube_video" }
-      )
-    );
-  } finally {
-    if (previousYtDlpPath === undefined) {
-      delete process.env.YT_DLP_PATH;
-    } else {
-      process.env.YT_DLP_PATH = previousYtDlpPath;
+  assert.deepEqual(
+    applyLongVideoInputRuntimePolicy({ ...cloudAutoInput, strategy: "uploaded_file" }, "cloud"),
+    {
+      ...cloudAutoInput,
+      strategy: "url_chunks",
     }
-  }
+  );
+
+  const cloudUrlChunksInput = { ...cloudAutoInput, strategy: "url_chunks" as const };
+  assert.equal(applyLongVideoInputRuntimePolicy(cloudUrlChunksInput, "cloud"), cloudUrlChunksInput);
+
+  assert.equal(applyLongVideoInputRuntimePolicy(cloudAutoInput, "local"), cloudAutoInput);
 }

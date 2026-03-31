@@ -264,6 +264,16 @@ function buildLanguageInstruction(): string {
   ].join(" ");
 }
 
+function buildAudioLanguageInstruction(): string {
+  return [
+    "Identify the dominant spoken language used in the audio content.",
+    'Populate `detectedLanguage` with that language, preferably as a BCP-47 tag such as `en`, `pt-BR`, or `ja`. Use `und` only if you genuinely cannot infer the language.',
+    "Write every analysis field in that detected language.",
+    "For `transcriptSegments`, keep each transcript excerpt brief and grounded in what was actually said.",
+    "Use the `translation` field only for an English translation when useful; otherwise return an empty string.",
+  ].join(" ");
+}
+
 export function buildPrompt(
   analysisPrompt?: string,
   startOffsetSeconds?: number,
@@ -281,6 +291,33 @@ export function buildPrompt(
   return [
     basePrompt,
     buildLanguageInstruction(),
+    clipScopePrompt,
+    analysisPrompt ? `Additional analysis focus:\n${analysisPrompt}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function buildAudioAnalysisPrompt(
+  analysisPrompt?: string,
+  startOffsetSeconds?: number,
+  endOffsetSeconds?: number
+): string {
+  const basePrompt =
+    "Analyze the attached public YouTube video using only the audio track and the speech you can transcribe from it. Ignore visual-only evidence such as on-screen text, objects, gestures, scene changes, or appearance details unless they are explicitly mentioned aloud or clearly inferable from sound alone. Return valid JSON only.";
+  const clipScopePrompt =
+    startOffsetSeconds !== undefined || endOffsetSeconds !== undefined
+      ? `Analyze only the selected clip window from ${startOffsetSeconds ?? 0}s to ${
+          endOffsetSeconds !== undefined ? `${endOffsetSeconds}s` : "the end of the video"
+        }. Ignore audio content outside that clip and do not report timestamps beyond the selected window.`
+      : "";
+
+  return [
+    basePrompt,
+    buildAudioLanguageInstruction(),
+    "Produce a concise transcript-grounded analysis rather than a full verbatim transcript of the entire video.",
+    "Include short timestamped transcript segments for the most important spoken moments using MM:SS when possible.",
+    "If speech is unclear or masked by noise, do not guess. Put the uncertainty in safetyOrAccuracyNotes.",
     clipScopePrompt,
     analysisPrompt ? `Additional analysis focus:\n${analysisPrompt}` : "",
   ]

@@ -9,6 +9,7 @@ export const SERVER_INFO = {
 } as const;
 
 export const DEFAULT_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-pro";
+export const DEFAULT_AUDIO_ANALYSIS_MODEL = "gemini-3-flash-preview";
 export const DEFAULT_LONG_VIDEO_CHUNK_MODEL = "gemini-2.5-flash";
 export const DEFAULT_LONG_VIDEO_FINAL_MODEL = "gemini-2.5-pro";
 export const DEFAULT_CHUNK_OVERLAP_SECONDS = 5;

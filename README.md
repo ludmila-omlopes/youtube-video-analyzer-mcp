@@ -5,6 +5,7 @@ An MCP server for analyzing public YouTube videos with Google Gemini. The packag
 ## Features
 
 - `analyze_youtube_video` for direct short-video or manual-clip analysis
+- `analyze_youtube_video_audio` for audio-only, transcript-grounded analysis of a public YouTube video
 - `analyze_long_youtube_video` for long videos with Files API-first handling and URL-chunk fallback
 - `continue_long_video_analysis` for follow-up questions on a long-video `sessionId`
 - `get_youtube_video_metadata` for normalized public YouTube video metadata via the YouTube Data API
@@ -87,6 +88,13 @@ For the local hosted HTTP adapter:
 npm run dev:hosted
 ```
 
+For the built hosted HTTP adapter:
+
+```bash
+npm run build
+npm run start:http
+```
+
 ## Remote MCP on Vercel
 
 The repository includes a public remote MCP entrypoint for web-standard Streamable HTTP:
@@ -106,8 +114,8 @@ Remote runtime behavior:
 - remote Gemini calls use the server-owned `GEMINI_API_KEY`
 - remote metadata calls use the server-owned `YOUTUBE_API_KEY`
 - remote MCP access is plug and play at `/api/mcp`
-- long-video remote sessions use the shared in-memory cloud session store from this process
-- long-video cloud execution still depends on `yt-dlp`, `ffmpeg`, temp storage, and function limits
+- remote `analyze_long_youtube_video` forces `strategy: "url_chunks"` to avoid download/upload work in the HTTP runtime
+- remote long-video sessions remain in-memory and are only relevant for previously created uploaded-file sessions
 - local `stdio` usage still uses environment variables and local config only
 
 Important limitation for public HTTP deployments:
@@ -115,6 +123,29 @@ Important limitation for public HTTP deployments:
 - `sessionId` is an opaque identifier sufficient for `continue_long_video_analysis`
 - long-video sessions are volatile in the public HTTP mode
 - restart, redeploy, expiration, or multi-instance routing can invalidate a previous `sessionId`
+
+## Deploying on Render
+
+The repository includes a `render.yaml` Blueprint for a single Render web service.
+
+What it configures:
+
+- build command: `npm ci && npm run build`
+- start command: `npm run start:http`
+- health check path: `/healthz`
+- required secrets: `GEMINI_API_KEY`, `YOUTUBE_API_KEY`
+- graceful shutdown window: `120` seconds for redeploys
+
+Render-specific runtime behavior in this repo:
+
+- the hosted HTTP server binds to `0.0.0.0:$PORT` when Render injects `PORT`
+- the root route reports the public MCP URL using Render's forwarded host/protocol headers
+- `analyze_long_youtube_video` still forces `strategy: "url_chunks"` in remote HTTP mode, so Render does not need local `yt-dlp` or `ffmpeg` for the public web service path
+
+Recommended plan choice:
+
+- the sample Blueprint uses `plan: free` to avoid creating a paid service by default
+- for production MCP usage, change the service plan to `starter` or higher so the service stays warm and long requests are less likely to be impacted by free-tier sleep behavior
 
 ## Using the npm package
 
@@ -204,6 +235,28 @@ Success output:
 - `content[0].text`: pretty-printed JSON for compatibility with text-only clients
 - `structuredContent`: the same parsed object validated against the tool output schema
 
+### `analyze_youtube_video_audio`
+
+Inputs:
+
+- `youtubeUrl`: public YouTube URL in `watch`, `live`, `shorts`, `embed`, or `youtu.be` form
+- `analysisPrompt`: optional analysis focus
+- `startOffsetSeconds`: optional clip start
+- `endOffsetSeconds`: optional clip end
+- `model`: optional Gemini model override, default `gemini-3-flash-preview`
+- `responseSchemaJson`: optional JSON schema string for custom structured output
+
+Behavior:
+
+- Uses Gemini's audio-understanding prompting pattern against the public YouTube URL
+- Instructs Gemini to ignore visual-only evidence and analyze only spoken content, audible cues, and short transcript excerpts
+- Returns structured JSON with transcript-grounded analysis by default
+
+Success output:
+
+- `content[0].text`: pretty-printed JSON for compatibility with text-only clients
+- `structuredContent`: the same parsed object validated against the tool output schema
+
 ### `get_youtube_video_metadata`
 
 Inputs:
@@ -239,11 +292,13 @@ Strategy policy:
 - `auto`: prefers uploaded-file analysis first, then falls back to URL chunks if needed
 - `uploaded_file`: deterministic Files API path for long videos
 - `url_chunks`: explicit preview-oriented path for public YouTube videos that avoids local download/upload work
+- public remote HTTP: forces `url_chunks` regardless of the requested strategy
 
 Behavior:
 
 - Uses `yt-dlp` to resolve duration metadata for long videos when available, with a watch-page fallback for public videos in cloud-style runtimes
-- In `auto`, prefers uploaded-file analysis before trying direct URL chunks
+- In local `stdio`, `auto` prefers uploaded-file analysis before trying direct URL chunks
+- In public remote HTTP, long-video analysis skips the uploaded-file path and runs `url_chunks`
 - Returns a `sessionId` when an uploaded-file session is created successfully
 - Emits structured stderr logs for strategy choice, chunk progress, retries, fallbacks, and failures
 - Returns `structuredContent` on success and `isError: true` on handled runtime failures

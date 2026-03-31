@@ -3,6 +3,7 @@ import process from "node:process";
 import { METADATA_TIMEOUT_MS } from "./constants.js";
 import { DiagnosticError } from "./errors.js";
 import type { MetadataToolOutput } from "./schemas.js";
+import type { YtDlpMetadata } from "./types.js";
 
 type FetchYouTubeVideoMetadataOptions = {
   youtubeUrl: string;
@@ -303,4 +304,30 @@ export async function fetchYouTubeVideoMetadata(
     videoId,
     item: item as Record<string, unknown>,
   });
+}
+
+export async function fetchLongVideoMetadata(options: FetchYouTubeVideoMetadataOptions): Promise<YtDlpMetadata> {
+  const metadata = await fetchYouTubeVideoMetadata(options);
+
+  if (!metadata.durationSeconds || metadata.durationSeconds <= 0) {
+    throw new DiagnosticError({
+      tool: "analyze_long_youtube_video",
+      code: "YOUTUBE_METADATA_DURATION_MISSING",
+      stage: "metadata",
+      message: "YouTube Data API metadata did not include a usable video duration.",
+      retryable: false,
+      details: {
+        videoId: metadata.videoId,
+        durationIso8601: metadata.durationIso8601,
+      },
+    });
+  }
+
+  return {
+    durationSeconds: metadata.durationSeconds,
+    title: metadata.title,
+    uploader: metadata.channelTitle,
+    uploadDate: metadata.publishedAt,
+    liveStatus: metadata.liveBroadcastContent,
+  };
 }

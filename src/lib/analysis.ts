@@ -5,6 +5,7 @@ import path from "node:path";
 import type { GoogleGenAI } from "@google/genai";
 
 import {
+  DEFAULT_AUDIO_ANALYSIS_MODEL,
   DEFAULT_CHUNK_OVERLAP_SECONDS,
   DEFAULT_LONG_VIDEO_CHUNK_MODEL,
   DEFAULT_LONG_VIDEO_FINAL_MODEL,
@@ -22,6 +23,7 @@ import {
 import { createAdaptiveBatchPlan, createAdaptiveChunkPlan } from "./chunk-planner.js";
 import { DiagnosticError, asDiagnosticError } from "./errors.js";
 import {
+  buildAudioAnalysisPrompt,
   buildChunkPrompt,
   buildChunkSynthesisPrompt,
   buildFollowUpPrompt,
@@ -34,8 +36,12 @@ import {
   uploadVideoFile,
 } from "./gemini.js";
 import type { Logger } from "./logger.js";
+import { fetchLongVideoMetadata } from "./youtube-metadata.js";
 import {
   chunkAnalysisSchema,
+  defaultAudioAnalysisSchema,
+  type AudioToolInput,
+  type AudioToolOutput,
   type FollowUpToolInput,
   type FollowUpToolOutput,
   type LongToolInput,
@@ -53,7 +59,7 @@ import type {
   UploadedVideoHandle,
   YtDlpMetadata,
 } from "./types.js";
-import { downloadYouTubeVideo, downloadYouTubeVideoSegment, getYouTubeMetadata, normalizeYouTubeUrl } from "./youtube.js";
+import { downloadYouTubeVideo, downloadYouTubeVideoSegment, normalizeYouTubeUrl } from "./youtube.js";
 import type { AnalysisSessionStore } from "../app/session-store.js";
 
 const CONSERVATIVE_URL_CHUNK_DURATION_SECONDS = 600;
@@ -846,6 +852,68 @@ export async function analyzeShortVideo(
   };
 }
 
+export async function analyzeYouTubeVideoAudio(
+  ai: GoogleGenAI,
+  params: AudioToolInput,
+  context: AnalysisExecutionContext
+): Promise<AudioToolOutput> {
+  if (
+    params.startOffsetSeconds !== undefined &&
+    params.endOffsetSeconds !== undefined &&
+    params.endOffsetSeconds <= params.startOffsetSeconds
+  ) {
+    throw new Error("endOffsetSeconds must be greater than startOffsetSeconds.");
+  }
+
+  const normalizedYoutubeUrl = normalizeYouTubeUrl(params.youtubeUrl);
+  if (!normalizedYoutubeUrl) {
+    throw new Error("youtubeUrl must be a valid YouTube video URL.");
+  }
+
+  const analysis = await generateStructuredJson(
+    ai,
+    {
+      model: params.model || DEFAULT_AUDIO_ANALYSIS_MODEL,
+      prompt: buildAudioAnalysisPrompt(params.analysisPrompt, params.startOffsetSeconds, params.endOffsetSeconds),
+      responseSchema: parseSchema(
+        params.responseSchemaJson,
+        defaultAudioAnalysisSchema as Record<string, unknown>
+      ),
+      videoPart: buildVideoPart(
+        { kind: "youtube_url", normalizedYoutubeUrl },
+        { startOffsetSeconds: params.startOffsetSeconds, endOffsetSeconds: params.endOffsetSeconds }
+      ),
+    },
+    {
+      logger: context.logger,
+      tool: context.tool,
+      stage: "short_video_generate",
+      code: "AUDIO_ONLY_VIDEO_ANALYSIS_FAILED",
+      failureMessage: "Failed to analyze the requested YouTube video from audio and transcription only.",
+      inputMode: "youtube_url",
+      responseMode: "schema_json",
+      details: {
+        startOffsetSeconds: params.startOffsetSeconds ?? null,
+        endOffsetSeconds: params.endOffsetSeconds ?? null,
+      },
+      timeoutMs: GENERATION_TIMEOUT_MS,
+      abortSignal: context.abortSignal,
+    }
+  );
+
+  return {
+    model: params.model || DEFAULT_AUDIO_ANALYSIS_MODEL,
+    youtubeUrl: params.youtubeUrl,
+    normalizedYoutubeUrl,
+    clip: {
+      startOffsetSeconds: params.startOffsetSeconds ?? null,
+      endOffsetSeconds: params.endOffsetSeconds ?? null,
+    },
+    usedCustomSchema: Boolean(params.responseSchemaJson),
+    analysis,
+  };
+}
+
 async function runUrlChunkStrategy(
   ai: GoogleGenAI,
   params: LongToolInput,
@@ -1192,14 +1260,16 @@ export async function analyzeLongVideo(
   await reportProgress(context, 0, 6, "Fetching YouTube metadata.");
   let metadata: YtDlpMetadata;
   try {
-    metadata = await getYouTubeMetadata(normalizedYoutubeUrl, {
+    metadata = await fetchLongVideoMetadata({
+      youtubeUrl: params.youtubeUrl,
+      normalizedYoutubeUrl,
       signal: context.abortSignal,
       timeoutMs: METADATA_TIMEOUT_MS,
     });
   } catch (error) {
     throw asDiagnosticError(error, {
       tool: context.tool,
-      code: "YTDLP_METADATA_FAILED",
+      code: "YOUTUBE_METADATA_FETCH_FAILED",
       stage: "metadata",
       message: "Failed to fetch YouTube metadata for long-video analysis.",
       strategyRequested: strategy,

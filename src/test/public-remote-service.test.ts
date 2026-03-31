@@ -27,6 +27,7 @@ export async function run(): Promise<void> {
     sessionStore: new FakeCloudSessionStore(),
   });
   assert.equal(typeof service.analyzeShort, "function");
+  assert.equal(typeof service.analyzeAudio, "function");
   assert.equal(typeof service.analyzeLong, "function");
   assert.equal(typeof service.continueLong, "function");
   assert.equal(typeof service.getYouTubeMetadata, "function");

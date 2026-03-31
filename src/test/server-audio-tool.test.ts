@@ -7,10 +7,13 @@ export async function run(): Promise<void> {
   const captured: Record<string, unknown>[] = [];
   const server = createServer({
     service: {
-      async analyzeShort(input, context) {
+      async analyzeShort() {
+        throw new Error("Not used");
+      },
+      async analyzeAudio(input, context) {
         captured.push({ input, tool: context.tool });
         return {
-          model: input.model || "gemini-test",
+          model: input.model || "gemini-3-flash-preview",
           youtubeUrl: input.youtubeUrl,
           normalizedYoutubeUrl: "https://www.youtube.com/watch?v=test",
           clip: {
@@ -18,11 +21,22 @@ export async function run(): Promise<void> {
             endOffsetSeconds: input.endOffsetSeconds ?? null,
           },
           usedCustomSchema: false,
-          analysis: { summary: "short" },
+          analysis: {
+            detectedLanguage: "en",
+            summary: "audio only",
+            topics: ["topic"],
+            transcriptSegments: [
+              {
+                timestamp: "00:12",
+                transcript: "Short excerpt.",
+                translation: "",
+              },
+            ],
+            notableQuotes: ["Short excerpt."],
+            actionItems: [],
+            safetyOrAccuracyNotes: [],
+          },
         };
-      },
-      async analyzeAudio() {
-        throw new Error("Not used");
       },
       async analyzeLong() {
         throw new Error("Not used");
@@ -40,16 +54,16 @@ export async function run(): Promise<void> {
 
   try {
     const result = await client.callTool({
-      name: "analyze_youtube_video",
+      name: "analyze_youtube_video_audio",
       arguments: {
         youtubeUrl: "https://www.youtube.com/watch?v=test",
-        analysisPrompt: "Focus on the main points",
+        analysisPrompt: "Focus on spoken claims",
       },
     });
 
     assert.equal(result.isError, undefined);
     assert.deepEqual(result.structuredContent, {
-      model: "gemini-test",
+      model: "gemini-3-flash-preview",
       youtubeUrl: "https://www.youtube.com/watch?v=test",
       normalizedYoutubeUrl: "https://www.youtube.com/watch?v=test",
       clip: {
@@ -57,9 +71,34 @@ export async function run(): Promise<void> {
         endOffsetSeconds: null,
       },
       usedCustomSchema: false,
-      analysis: { summary: "short" },
+      analysis: {
+        detectedLanguage: "en",
+        summary: "audio only",
+        topics: ["topic"],
+        transcriptSegments: [
+          {
+            timestamp: "00:12",
+            transcript: "Short excerpt.",
+            translation: "",
+          },
+        ],
+        notableQuotes: ["Short excerpt."],
+        actionItems: [],
+        safetyOrAccuracyNotes: [],
+      },
     });
     assert.equal(captured.length, 1);
+    assert.deepEqual(captured[0], {
+      input: {
+        youtubeUrl: "https://www.youtube.com/watch?v=test",
+        analysisPrompt: "Focus on spoken claims",
+        startOffsetSeconds: undefined,
+        endOffsetSeconds: undefined,
+        model: undefined,
+        responseSchemaJson: undefined,
+      },
+      tool: "analyze_youtube_video_audio",
+    });
   } finally {
     await client.close();
     await server.close();

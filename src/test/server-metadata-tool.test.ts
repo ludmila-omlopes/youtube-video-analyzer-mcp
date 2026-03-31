@@ -11,6 +11,9 @@ export async function run(): Promise<void> {
       async analyzeShort() {
         throw new Error("Not used");
       },
+      async analyzeAudio() {
+        throw new Error("Not used");
+      },
       async analyzeLong() {
         throw new Error("Not used");
       },
@@ -78,6 +81,9 @@ export async function run(): Promise<void> {
   const failingServer = createServer({
     service: {
       async analyzeShort() {
+        throw new Error("Not used");
+      },
+      async analyzeAudio() {
         throw new Error("Not used");
       },
       async analyzeLong() {

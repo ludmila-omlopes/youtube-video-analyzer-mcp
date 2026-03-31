@@ -16,6 +16,30 @@ export async function run(): Promise<void> {
           analysis: { summary: "http-short" },
         };
       },
+      async analyzeAudio(input) {
+        return {
+          model: input.model || "gemini-3-flash-preview",
+          youtubeUrl: input.youtubeUrl,
+          normalizedYoutubeUrl: "https://www.youtube.com/watch?v=test",
+          clip: { startOffsetSeconds: null, endOffsetSeconds: null },
+          usedCustomSchema: false,
+          analysis: {
+            detectedLanguage: "en",
+            summary: "http-audio",
+            topics: ["topic"],
+            transcriptSegments: [
+              {
+                timestamp: "00:12",
+                transcript: "Short excerpt.",
+                translation: "",
+              },
+            ],
+            notableQuotes: ["Short excerpt."],
+            actionItems: [],
+            safetyOrAccuracyNotes: [],
+          },
+        };
+      },
       async analyzeLong() {
         throw new Error("Not used");
       },
@@ -78,6 +102,36 @@ export async function run(): Promise<void> {
       clip: { startOffsetSeconds: null, endOffsetSeconds: null },
       usedCustomSchema: false,
       analysis: { summary: "http-short" },
+    });
+
+    const audioResult = await client.callTool({
+      name: "analyze_youtube_video_audio",
+      arguments: {
+        youtubeUrl: "https://www.youtube.com/watch?v=test",
+      },
+    });
+
+    assert.deepEqual(audioResult.structuredContent, {
+      model: "gemini-3-flash-preview",
+      youtubeUrl: "https://www.youtube.com/watch?v=test",
+      normalizedYoutubeUrl: "https://www.youtube.com/watch?v=test",
+      clip: { startOffsetSeconds: null, endOffsetSeconds: null },
+      usedCustomSchema: false,
+      analysis: {
+        detectedLanguage: "en",
+        summary: "http-audio",
+        topics: ["topic"],
+        transcriptSegments: [
+          {
+            timestamp: "00:12",
+            transcript: "Short excerpt.",
+            translation: "",
+          },
+        ],
+        notableQuotes: ["Short excerpt."],
+        actionItems: [],
+        safetyOrAccuracyNotes: [],
+      },
     });
 
     const metadataResult = await client.callTool({
