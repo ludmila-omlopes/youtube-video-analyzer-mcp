@@ -333,7 +333,7 @@ export function buildChunkPrompt(
   return [
     buildPrompt(analysisPrompt, chunk.startOffsetSeconds, chunk.endOffsetSeconds),
     `This is chunk ${chunk.index + 1} of the full video, which is ${durationSeconds} seconds long.`,
-    "Treat this as an intermediate chunk analysis. Keep the summary concise, include at most 6 key moments, and note any open threads that may continue into later chunks.",
+    "Treat this as an intermediate chunk analysis. Keep the summary concise, include at most 6 key moments with timestamps, and note any open threads that may continue into later chunks. Do not include any additional text or commentary.",
   ].join("\n\n");
 }
 
@@ -351,7 +351,7 @@ export function buildChunkSynthesisPrompt(
     metadata.uploader ? `Uploader: ${metadata.uploader}` : "",
     `Video duration in seconds: ${metadata.durationSeconds}`,
     analysisPrompt ? `Original analysis focus:\n${analysisPrompt}` : "",
-    "Merge repeated topics, deduplicate quotes, keep a coherent global summary, and preserve only the most important key moments.",
+    "Merge repeated topics, deduplicate quotes, keep a coherent global summary, and preserve only the most important key moments. Do not include any additional text or commentary.",
     `Chunk analyses JSON:\n${JSON.stringify(chunkResults)}`,
   ]
     .filter(Boolean)
