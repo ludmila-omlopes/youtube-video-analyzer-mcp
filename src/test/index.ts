@@ -1,4 +1,5 @@
 import { run as runChunkPlannerTests } from "./chunk-planner.test.js";
+import { run as runCloudSessionStoreTests } from "./cloud-session-store.test.js";
 import { run as runGeminiStructuredOutputTests } from "./gemini-structured-output.test.js";
 import { run as runGeminiLanguagePromptTests } from "./gemini-language-prompts.test.js";
 import { run as runGeminiVideoPartTests } from "./gemini-video-parts.test.js";
@@ -7,10 +8,12 @@ import { run as runHttpAuthTests } from "./http-auth.test.js";
 import { run as runHttpMcpTests } from "./http-mcp.test.js";
 import { run as runOAuthValidationTests } from "./oauth-validation.test.js";
 import { run as runPrincipalScopedLongAnalysisJobsTests } from "./principal-scoped-long-analysis-jobs.test.js";
+import { run as runPrincipalScopedServiceTests } from "./principal-scoped-service.test.js";
 import { run as runPrincipalScopedSessionStoreTests } from "./principal-scoped-session-store.test.js";
 import { run as runPublicRemoteServiceTests } from "./public-remote-service.test.js";
 import { run as runQueueDashboardTests } from "./queue-dashboard.test.js";
 import { run as runRemoteAccessStoreTests } from "./remote-access-store.test.js";
+import { run as runRemoteAccountTests } from "./remote-account.test.js";
 import { run as runServerAudioToolTests } from "./server-audio-tool.test.js";
 import { run as runServerAsyncLongToolTests } from "./server-async-long-tool.test.js";
 import { run as runServerFollowUpToolTests } from "./server-follow-up-tool.test.js";
@@ -25,6 +28,7 @@ import { run as runYouTubeTests } from "./youtube.test.js";
 
 const suites = [
   ["chunk-planner", runChunkPlannerTests],
+  ["cloud-session-store", runCloudSessionStoreTests],
   ["gemini-structured-output", runGeminiStructuredOutputTests],
   ["gemini-language-prompts", runGeminiLanguagePromptTests],
   ["gemini-video-parts", runGeminiVideoPartTests],
@@ -33,9 +37,11 @@ const suites = [
   ["http-mcp", runHttpMcpTests],
   ["oauth-validation", runOAuthValidationTests],
   ["principal-scoped-long-analysis-jobs", runPrincipalScopedLongAnalysisJobsTests],
+  ["principal-scoped-service", runPrincipalScopedServiceTests],
   ["principal-scoped-session-store", runPrincipalScopedSessionStoreTests],
   ["public-remote-service", runPublicRemoteServiceTests],
   ["queue-dashboard", runQueueDashboardTests],
+  ["remote-account", runRemoteAccountTests],
   ["remote-access-store", runRemoteAccessStoreTests],
   ["server-audio-tool", runServerAudioToolTests],
   ["server-async-long-tool", runServerAsyncLongToolTests],

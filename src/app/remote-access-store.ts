@@ -3,22 +3,22 @@ import process from "node:process";
 import { Redis } from "ioredis";
 
 import { getPrincipalKey, type AuthPrincipal } from "../lib/auth/principal.js";
+import {
+  mergeRemoteAccountOnUpsert,
+  normalizeRemoteAccountFromStorage,
+  type RemoteAccount,
+} from "./remote-account.js";
+
+export type { RemoteAccount, RemoteAccountPlan, RemoteAccountStatus } from "./remote-account.js";
 
 const ACCOUNT_KEY_PREFIX = "remote-access:account:";
 const JOB_OWNER_KEY_PREFIX = "remote-access:job-owner:";
 const SESSION_OWNER_KEY_PREFIX = "remote-access:session-owner:";
 
-export type RemoteAccount = {
-  accountId: string;
-  subject: string;
-  issuer: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
 export interface RemoteAccessStore {
   upsertAccount(principal: AuthPrincipal): Promise<RemoteAccount>;
   getAccount(accountId: string): Promise<RemoteAccount | null>;
+  adjustAccountCredits(accountId: string, delta: number): Promise<RemoteAccount | null>;
   setJobOwner(jobId: string, accountId: string): Promise<void>;
   getJobOwner(jobId: string): Promise<string | null>;
   deleteJobOwner?(jobId: string): Promise<void>;
@@ -46,22 +46,12 @@ function createRedisConnection(redisUrl: string): Redis {
   return new Redis(redisUrl, { maxRetriesPerRequest: 1 });
 }
 
-function createRemoteAccount(principal: AuthPrincipal, createdAt: string, updatedAt: string): RemoteAccount {
-  return {
-    accountId: getPrincipalKey(principal),
-    subject: principal.subject,
-    issuer: principal.issuer,
-    createdAt,
-    updatedAt,
-  };
-}
-
-function readJson<T>(value: string | null): T | null {
+function readJsonUnknown(value: string | null): unknown | null {
   if (!value) {
     return null;
   }
 
-  return JSON.parse(value) as T;
+  return JSON.parse(value) as unknown;
 }
 
 export class InMemoryRemoteAccessStore implements RemoteAccessStore {
@@ -72,22 +62,45 @@ export class InMemoryRemoteAccessStore implements RemoteAccessStore {
   async upsertAccount(principal: AuthPrincipal): Promise<RemoteAccount> {
     const accountId = getPrincipalKey(principal);
     const now = new Date().toISOString();
-    const existing = this.accounts.get(accountId);
-    const account = existing
-      ? {
-          ...existing,
-          subject: principal.subject,
-          issuer: principal.issuer,
-          updatedAt: now,
-        }
-      : createRemoteAccount(principal, now, now);
+    const previous = this.accounts.get(accountId) ?? null;
+    const existing = previous ? normalizeRemoteAccountFromStorage(previous, accountId) : null;
+    const account = mergeRemoteAccountOnUpsert(existing, principal, now);
 
     this.accounts.set(accountId, account);
     return account;
   }
 
   async getAccount(accountId: string): Promise<RemoteAccount | null> {
-    return this.accounts.get(accountId) ?? null;
+    const previous = this.accounts.get(accountId) ?? null;
+    return previous ? normalizeRemoteAccountFromStorage(previous, accountId) : null;
+  }
+
+  async adjustAccountCredits(accountId: string, delta: number): Promise<RemoteAccount | null> {
+    const previous = this.accounts.get(accountId) ?? null;
+    const existing = previous ? normalizeRemoteAccountFromStorage(previous, accountId) : null;
+    if (!existing) {
+      return null;
+    }
+
+    if (existing.status === "suspended" && delta < 0) {
+      return null;
+    }
+
+    const nextBalance = existing.creditBalance + delta;
+    if (nextBalance < 0) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const updated: RemoteAccount = {
+      ...existing,
+      creditBalance: nextBalance,
+      updatedAt: now,
+      lastSeenAt: now,
+    };
+
+    this.accounts.set(accountId, updated);
+    return updated;
   }
 
   async setJobOwner(jobId: string, accountId: string): Promise<void> {
@@ -121,23 +134,61 @@ export class RedisRemoteAccessStore implements RemoteAccessStore {
   async upsertAccount(principal: AuthPrincipal): Promise<RemoteAccount> {
     const accountId = getPrincipalKey(principal);
     const key = `${ACCOUNT_KEY_PREFIX}${accountId}`;
-    const existing = readJson<RemoteAccount>(await this.redis.get(key));
+    const raw = readJsonUnknown(await this.redis.get(key));
     const now = new Date().toISOString();
-    const account = existing
-      ? {
-          ...existing,
-          subject: principal.subject,
-          issuer: principal.issuer,
-          updatedAt: now,
-        }
-      : createRemoteAccount(principal, now, now);
+    const existing = raw ? normalizeRemoteAccountFromStorage(raw, accountId) : null;
+    const account = mergeRemoteAccountOnUpsert(existing, principal, now);
 
     await this.redis.set(key, JSON.stringify(account));
     return account;
   }
 
   async getAccount(accountId: string): Promise<RemoteAccount | null> {
-    return readJson<RemoteAccount>(await this.redis.get(`${ACCOUNT_KEY_PREFIX}${accountId}`));
+    const raw = readJsonUnknown(await this.redis.get(`${ACCOUNT_KEY_PREFIX}${accountId}`));
+    return raw ? normalizeRemoteAccountFromStorage(raw, accountId) : null;
+  }
+
+  async adjustAccountCredits(accountId: string, delta: number): Promise<RemoteAccount | null> {
+    const key = `${ACCOUNT_KEY_PREFIX}${accountId}`;
+
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await this.redis.watch(key);
+      const raw = readJsonUnknown(await this.redis.get(key));
+      const existing = raw ? normalizeRemoteAccountFromStorage(raw, accountId) : null;
+
+      if (!existing) {
+        await this.redis.unwatch();
+        return null;
+      }
+
+      if (existing.status === "suspended" && delta < 0) {
+        await this.redis.unwatch();
+        return null;
+      }
+
+      const nextBalance = existing.creditBalance + delta;
+      if (nextBalance < 0) {
+        await this.redis.unwatch();
+        return null;
+      }
+
+      const now = new Date().toISOString();
+      const updated: RemoteAccount = {
+        ...existing,
+        creditBalance: nextBalance,
+        updatedAt: now,
+        lastSeenAt: now,
+      };
+
+      const execResult = await this.redis.multi().set(key, JSON.stringify(updated)).exec();
+      if (execResult === null) {
+        continue;
+      }
+
+      return updated;
+    }
+
+    return null;
   }
 
   async setJobOwner(jobId: string, accountId: string): Promise<void> {

@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 
-import { getFollowUpChargeCredits, getLongAnalysisChargeCredits, getShortAnalysisChargeCredits } from "../app/pricing.js";
+import {
+  getAudioAnalysisChargeCredits,
+  getFollowUpChargeCredits,
+  getLongAnalysisChargeCredits,
+  getShortAnalysisChargeCredits,
+} from "../app/pricing.js";
 
 export async function run(): Promise<void> {
   assert.equal(getShortAnalysisChargeCredits(), 1);
+  assert.equal(getAudioAnalysisChargeCredits(), 1);
   assert.equal(getFollowUpChargeCredits(), 2);
   assert.equal(
     getLongAnalysisChargeCredits({

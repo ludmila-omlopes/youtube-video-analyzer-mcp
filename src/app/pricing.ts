@@ -4,6 +4,10 @@ export function getShortAnalysisChargeCredits(): number {
   return 1;
 }
 
+export function getAudioAnalysisChargeCredits(): number {
+  return 1;
+}
+
 export function getFollowUpChargeCredits(): number {
   return 2;
 }

@@ -19,28 +19,7 @@ An MCP server for analyzing public YouTube videos with Google Gemini. The packag
 - Shared transport-neutral analysis service used by both `stdio` and HTTP adapters
 - Public remote MCP route at `api/mcp.ts`
 
-## Project layout
 
-- `src/index.ts`: `stdio` bootstrap only
-- `src/server.ts`: shared MCP tool registration, request logging, and task wiring
-- `src/app/video-analysis-service.ts`: transport-neutral application service
-- `src/app/session-store.ts`: session store contract plus in-memory implementation
-- `src/app/create-service.ts`: local and cloud service factories
-- `src/app/create-public-remote-service.ts`: public remote HTTP service factory
-- `src/app/long-analysis-jobs.ts`: async long-analysis job backend contract
-- `src/app/bullmq-long-analysis-jobs.ts`: BullMQ-backed Redis queue for remote long analysis
-- `src/app/queue-dashboard.ts`: authenticated BullMQ dashboard app for queue inspection
-- `src/http/mcp.ts`: web-standard Streamable HTTP adapter
-- `src/dev/hosted.ts`: local hosted-dev HTTP server for `/` and `/api/mcp`
-- `src/admin.ts`: BullMQ dashboard bootstrap
-- `src/worker.ts`: BullMQ worker entrypoint for remote long analysis jobs
-- `api/mcp.ts`: Vercel route wrapper
-- `src/lib/schemas.ts`: input and output schemas plus JSON helpers
-- `src/lib/youtube.ts`: YouTube URL normalization and `yt-dlp` helpers
-- `src/lib/gemini.ts`: Gemini request builders, uploads, token budgeting, caching, and retry handling
-- `src/lib/analysis.ts`: short-video, long-video, and follow-up orchestration
-- `src/lib/logger.ts`: structured stderr logging helpers
-- `src/lib/errors.ts`: safe diagnostic error types and retryability heuristics
 
 ## Prerequisites
 
@@ -133,11 +112,13 @@ Remote deployment environment variables:
 - `GEMINI_API_KEY`
 - `YOUTUBE_API_KEY`
 - `REDIS_URL` or `REDIS_HOST` / `REDIS_PORT` for remote async long-video jobs
+- `SESSION_STORE_DRIVER` (optional: `memory` or `redis`) for remote follow-up session persistence
 - `OAUTH_ENABLED=true` to require bearer tokens for remote MCP access
 - `OAUTH_ISSUER`
 - `OAUTH_AUDIENCE`
 - `OAUTH_JWKS_URL`
 - `OAUTH_REQUIRED_SCOPE` (optional)
+- `REMOTE_ACCOUNT_INITIAL_CREDITS` (optional, default `100`) initial balance for new authenticated remote accounts
 
 Remote runtime behavior:
 
@@ -148,9 +129,11 @@ Remote runtime behavior:
 - the protected-resource metadata document is served at `/.well-known/oauth-protected-resource`
 - remote HTTP exposes `start_long_youtube_video_analysis` and `get_long_youtube_video_analysis_job`
 - remote long-video analysis runs in a BullMQ worker backed by Redis instead of blocking the MCP request
+- remote follow-up session state uses Redis automatically when Redis is configured, or `SESSION_STORE_DRIVER=redis` can force it
 - remote workers force `strategy: "url_chunks"` to avoid download/upload work in the HTTP runtime
 - blocking `analyze_long_youtube_video` and `continue_long_video_analysis` are reserved for local `stdio` / MCP-task clients
 - local `stdio` usage still uses environment variables and local config only
+- when a bearer token is present, `analyze_youtube_video` and `analyze_youtube_video_audio` debit credits after a successful run; other remote tools are unchanged in this release
 
 Important limitation for public HTTP deployments:
 

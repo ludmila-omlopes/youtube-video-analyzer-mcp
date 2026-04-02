@@ -22,9 +22,28 @@ export async function run(): Promise<void> {
   assert.equal(created.issuer, principal.issuer);
   assert.equal(typeof created.createdAt, "string");
   assert.equal(typeof created.updatedAt, "string");
+  assert.equal(typeof created.lastSeenAt, "string");
+  assert.equal(created.plan, "free");
+  assert.equal(created.status, "active");
 
   const loaded = await store.getAccount(accountId);
   assert.equal(loaded?.accountId, accountId);
+  assert.equal(loaded?.plan, "free");
+  assert.equal(loaded?.status, "active");
+  assert.equal(typeof loaded?.creditBalance, "number");
+
+  const afterDebit = await store.adjustAccountCredits(accountId, -1);
+  assert.equal(afterDebit?.creditBalance, (loaded?.creditBalance ?? 0) - 1);
+
+  const broke = await store.adjustAccountCredits(accountId, -((afterDebit?.creditBalance ?? 0) + 1));
+  assert.equal(broke, null);
+  assert.equal((await store.getAccount(accountId))?.creditBalance, afterDebit?.creditBalance ?? 0);
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const touched = await store.upsertAccount(principal);
+  assert.equal(touched.createdAt, created.createdAt);
+  assert.notEqual(touched.updatedAt, created.updatedAt);
+  assert.notEqual(touched.lastSeenAt, created.lastSeenAt);
 
   await store.setJobOwner("job-1", accountId);
   assert.equal(await store.getJobOwner("job-1"), accountId);

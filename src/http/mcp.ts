@@ -50,10 +50,9 @@ export function createMcpHttpHandler(options: McpHttpHandlerOptions = {}) {
           ? createPrincipalScopedSessionStore(baseSessionStore, context.principal, remoteAccessStore)
           : baseSessionStore,
       });
-    const service =
-      context.principal && (options.service || options.createService)
-        ? createPrincipalScopedService(baseService, context.principal)
-        : baseService;
+    const service = context.principal
+      ? createPrincipalScopedService(baseService, context.principal, remoteAccessStore)
+      : baseService;
     const longAnalysisJobs =
       context.principal && baseLongAnalysisJobs
         ? createPrincipalScopedLongAnalysisJobs(baseLongAnalysisJobs, context.principal, remoteAccessStore)
