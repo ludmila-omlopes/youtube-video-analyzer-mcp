@@ -1,0 +1,52 @@
+{
+  "name": "@ludylops/youtube-video-analyzer-mcp",
+  "mcpName": "io.github.ludmila-omlopes/youtube-video-analyzer",
+  "version": "0.3.0",
+  "description": "MCP stdio server for analyzing YouTube videos with Google Gemini",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ludmila-omlopes/youtube-video-analyzer-mcp-server.git"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "youtube-video-analyzer-mcp": "bin/youtube-video-analyzer-mcp.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE",
+    ".env.example",
+    "server.json"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "esbuild src/index.ts src/mcp-server-main.ts src/server.ts src/task-store.ts src/platform-runtime/index.ts src/platform-runtime/create-service.ts src/platform-runtime/task-store.ts --outdir=dist --outbase=src --platform=node --format=esm --packages=external --target=node20",
+    "test": "tsx src/test/index.ts",
+    "release:check": "npm run test"
+  },
+  "keywords": [
+    "mcp",
+    "gemini",
+    "youtube",
+    "video-analysis"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@ludylops/video-analysis-core": "file:../youtube-analyzer-mcp/packages/video-analysis-core",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "dotenv": "^16.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
