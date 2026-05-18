@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { DiagnosticError } from "@ludylops/video-analysis-core";
+import { DiagnosticError } from "../core/index.js";
 import { createServer } from "../server.js";
 import { createConnectedInMemoryClient } from "./test-helpers.js";
 
@@ -112,7 +112,9 @@ export async function run(): Promise<void> {
     });
 
     assert.equal(errorResult.isError, true);
-    const structuredError = errorResult.structuredContent as {
+    assert.equal(errorResult.structuredContent, undefined);
+    const content = errorResult.content as Array<{ type: "text"; text: string }>;
+    const structuredError = JSON.parse(content[0].text) as {
       error: {
         tool: string;
         code: string;

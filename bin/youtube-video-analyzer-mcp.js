@@ -3,18 +3,51 @@
 import process from "node:process";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 
 import { config as loadDotenv } from "dotenv";
 
-import {
-  applyUserConfigToEnv,
-  formatMissingApiKeyGuidance,
-  getUserConfigPath,
-  readUserConfigFile,
-  writeUserConfigFile,
-} from "@ludylops/video-analysis-core";
-
 const defaultModel = "gemini-2.5-pro";
+
+function getUserConfigPath() {
+  return join(homedir(), ".youtube-video-analyzer-mcp", "config.json");
+}
+
+async function readUserConfigFile(path) {
+  try {
+    const content = await readFile(path, "utf8");
+    const parsed = JSON.parse(content);
+    return typeof parsed === "object" && parsed ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function writeUserConfigFile(path, data) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+function applyUserConfigToEnv(config) {
+  for (const [key, value] of Object.entries(config)) {
+    if (!process.env[key] && typeof value === "string" && value.length > 0) {
+      process.env[key] = value;
+    }
+  }
+}
+
+function formatMissingApiKeyGuidance(configPath) {
+  return [
+    "Missing GEMINI_API_KEY.",
+    "",
+    "Set GEMINI_API_KEY in the environment or run:",
+    "  youtube-video-analyzer-mcp setup",
+    "",
+    `Config file path: ${configPath}`,
+  ].join("\n");
+}
 
 function printUsage() {
   console.log([
@@ -134,7 +167,8 @@ async function run() {
     throw new Error(formatMissingApiKeyGuidance(configPath));
   }
 
-  await import("../dist/index.js");
+  const { main } = await import("../dist/mcp-server-main.js");
+  await main();
 }
 
 run().catch((error) => {
