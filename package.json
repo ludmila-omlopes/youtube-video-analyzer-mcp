@@ -2,7 +2,7 @@
   "name": "@ludylops/youtube-video-analyzer-mcp",
   "mcpName": "io.github.ludmila-omlopes/youtube-video-analyzer",
   "version": "0.3.0",
-  "description": "MCP stdio server for analyzing YouTube videos with Google Gemini",
+  "description": "MCP stdio server for analyzing YouTube videos, audio, metadata, and long VODs with Google Gemini",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/ludmila-omlopes/youtube-video-analyzer-mcp-server.git"
@@ -15,7 +15,13 @@
   "files": [
     "bin",
     "dist",
+    "!dist/test",
+    "docs",
     "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SUPPORT.md",
+    "SECURITY.md",
     "LICENSE",
     ".env.example",
     "server.json"
@@ -27,16 +33,25 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "test": "tsx src/test/index.ts",
     "release:check": "npm run test"
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "gemini",
     "youtube",
-    "video-analysis"
+    "youtube-analysis",
+    "video-analysis",
+    "audio-analysis",
+    "long-video",
+    "vod",
+    "transcript",
+    "metadata",
+    "ai-tools"
   ],
   "license": "MIT",
   "dependencies": {
