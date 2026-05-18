@@ -27,7 +27,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "esbuild src/index.ts src/mcp-server-main.ts src/server.ts src/task-store.ts src/platform-runtime/index.ts src/platform-runtime/create-service.ts src/platform-runtime/task-store.ts --outdir=dist --outbase=src --platform=node --format=esm --packages=external --target=node20",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
     "test": "tsx src/test/index.ts",
     "release:check": "npm run test"
   },
@@ -39,9 +40,12 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@ludylops/video-analysis-core": "file:../youtube-analyzer-mcp/packages/video-analysis-core",
+    "@google/genai": "^1.45.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "dotenv": "^16.6.1"
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "dotenv": "^16.6.1",
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@types/node": "^22.19.15",
