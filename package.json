@@ -8,6 +8,9 @@
     "url": "git+https://github.com/ludmila-omlopes/youtube-video-analyzer-mcp-server.git"
   },
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "main": "dist/index.js",
   "bin": {
     "youtube-video-analyzer-mcp": "bin/youtube-video-analyzer-mcp.js"
@@ -34,10 +37,10 @@
   },
   "scripts": {
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
-    "build": "npm run clean && tsc -p tsconfig.json",
+    "build": "npm run build --workspace @ludylops/video-analysis-core && npm run clean && tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "tsx src/test/index.ts",
-    "release:check": "npm run test"
+    "test": "npm run test --workspace @ludylops/video-analysis-core && npm run build --workspace @ludylops/video-analysis-core && tsx src/test/index.ts",
+    "release:check": "npm run test && npm run build"
   },
   "keywords": [
     "mcp",
@@ -56,6 +59,7 @@
   "license": "MIT",
   "dependencies": {
     "@google/genai": "^1.45.0",
+    "@ludylops/video-analysis-core": "0.1.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",

@@ -187,6 +187,12 @@ export const followUpToolInputSchema = {
   responseSchemaJson: z.string().trim().min(2).optional().describe("Optional JSON schema object, encoded as a JSON string."),
 } satisfies z.ZodRawShape;
 
+export const longAnalysisJobInputSchema = longToolInputSchema;
+
+export const longAnalysisJobIdInputSchema = {
+  jobId: z.string().trim().min(1).describe("Job ID returned by start_long_youtube_analysis."),
+} satisfies z.ZodRawShape;
+
 export const capabilitiesToolInputSchema = {} satisfies z.ZodRawShape;
 
 export const metadataToolInputSchema = {
@@ -195,6 +201,50 @@ export const metadataToolInputSchema = {
     .trim()
     .min(1)
     .refine((value) => normalizeYouTubeUrl(value) !== null, "youtubeUrl must be a valid YouTube URL"),
+} satisfies z.ZodRawShape;
+
+export const frameToolInputSchema = {
+  youtubeUrl: z
+    .string()
+    .trim()
+    .min(1)
+    .refine((value) => normalizeYouTubeUrl(value) !== null, "youtubeUrl must be a valid YouTube URL"),
+  timestampSeconds: z.number().finite().min(0).describe("Timestamp of the requested frame, in seconds."),
+  jpegQuality: z
+    .number()
+    .finite()
+    .int()
+    .min(2)
+    .max(31)
+    .optional()
+    .describe("ffmpeg JPEG quality value. 2 is best quality, 31 is lowest. Defaults to 2."),
+  searchWindowSeconds: z
+    .number()
+    .finite()
+    .min(2)
+    .max(30)
+    .optional()
+    .describe("Small download window around the timestamp, in seconds. Defaults to 6."),
+  timestampRefinementPrompt: z
+    .string()
+    .trim()
+    .min(1)
+    .max(1000)
+    .optional()
+    .describe("Optional visual cue for Gemini to refine the timestamp before local extraction. Gemini returns only a timestamp; it never generates the frame."),
+  timestampRefinementWindowSeconds: z
+    .number()
+    .finite()
+    .min(5)
+    .max(300)
+    .optional()
+    .describe("Window around timestampSeconds that Gemini may inspect when refining the timestamp. Defaults to 60."),
+  timestampRefinementModel: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Optional Gemini model override used only for timestamp refinement."),
 } satisfies z.ZodRawShape;
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
@@ -306,6 +356,52 @@ export const followUpToolOutputSchema = {
   analysis: jsonObjectSchema,
 } satisfies z.ZodRawShape;
 
+const longAnalysisJobStatusSchema = z.enum(["queued", "running", "done", "error", "cancelled"]);
+
+const longAnalysisJobProgressSchema = z.object({
+  progress: z.number(),
+  total: z.number().optional(),
+  message: z.string(),
+});
+
+const longAnalysisJobErrorSchema = z.object({
+  code: z.string(),
+  stage: z.string(),
+  message: z.string(),
+  retryable: z.boolean(),
+  causeMessage: nullableStringSchema,
+  details: jsonObjectSchema.nullable(),
+});
+
+export const startLongAnalysisJobOutputSchema = {
+  jobId: z.string(),
+  status: z.literal("queued"),
+  statusMessage: nullableStringSchema,
+} satisfies z.ZodRawShape;
+
+export const longAnalysisJobStatusOutputSchema = {
+  jobId: z.string(),
+  status: longAnalysisJobStatusSchema,
+  progress: longAnalysisJobProgressSchema.nullable(),
+  statusMessage: nullableStringSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+} satisfies z.ZodRawShape;
+
+export const longAnalysisJobResultOutputSchema = {
+  jobId: z.string(),
+  status: longAnalysisJobStatusSchema,
+  result: z.object(longToolOutputSchema).nullable(),
+  error: longAnalysisJobErrorSchema.nullable(),
+  statusMessage: nullableStringSchema,
+} satisfies z.ZodRawShape;
+
+export const cancelLongAnalysisJobOutputSchema = {
+  jobId: z.string(),
+  status: z.enum(["cancelled", "done", "error"]),
+  statusMessage: nullableStringSchema,
+} satisfies z.ZodRawShape;
+
 export const capabilitiesToolOutputSchema = {
   transport: z.literal("stdio"),
   mcpToolDeadlineMs: z.number(),
@@ -347,19 +443,42 @@ export const metadataToolOutputSchema = {
   statistics: metadataStatisticsSchema,
 } satisfies z.ZodRawShape;
 
+export const frameToolOutputSchema = {
+  youtubeUrl: z.string(),
+  normalizedYoutubeUrl: z.string(),
+  timestampSeconds: z.number(),
+  requestedTimestampSeconds: z.number(),
+  timestampSource: z.enum(["requested", "gemini_refined"]),
+  timestampRefinementReason: nullableStringSchema,
+  source: z.literal("local_exact"),
+  isExactFrame: z.literal(true),
+  mimeType: z.literal("image/jpeg"),
+  imageBase64: z.string(),
+  jpegBase64: z.string(),
+  sizeBytes: z.number(),
+} satisfies z.ZodRawShape;
+
 export type ShortToolInput = z.infer<z.ZodObject<typeof shortToolInputSchema>>;
 export type AudioToolInput = z.infer<z.ZodObject<typeof audioToolInputSchema>>;
 export type LongToolInput = z.infer<z.ZodObject<typeof longToolInputSchema>>;
 export type FollowUpToolInput = z.infer<z.ZodObject<typeof followUpToolInputSchema>>;
+export type LongAnalysisJobInput = z.infer<z.ZodObject<typeof longAnalysisJobInputSchema>>;
+export type LongAnalysisJobIdInput = z.infer<z.ZodObject<typeof longAnalysisJobIdInputSchema>>;
 export type CapabilitiesToolInput = z.infer<z.ZodObject<typeof capabilitiesToolInputSchema>>;
 export type MetadataToolInput = z.infer<z.ZodObject<typeof metadataToolInputSchema>>;
+export type FrameToolInput = z.infer<z.ZodObject<typeof frameToolInputSchema>>;
 
 export type ShortToolOutput = z.infer<z.ZodObject<typeof shortToolOutputSchema>>;
 export type AudioToolOutput = z.infer<z.ZodObject<typeof audioToolOutputSchema>>;
 export type LongToolOutput = z.infer<z.ZodObject<typeof longToolOutputSchema>>;
 export type FollowUpToolOutput = z.infer<z.ZodObject<typeof followUpToolOutputSchema>>;
+export type StartLongAnalysisJobOutput = z.infer<z.ZodObject<typeof startLongAnalysisJobOutputSchema>>;
+export type LongAnalysisJobStatusOutput = z.infer<z.ZodObject<typeof longAnalysisJobStatusOutputSchema>>;
+export type LongAnalysisJobResultOutput = z.infer<z.ZodObject<typeof longAnalysisJobResultOutputSchema>>;
+export type CancelLongAnalysisJobOutput = z.infer<z.ZodObject<typeof cancelLongAnalysisJobOutputSchema>>;
 export type CapabilitiesToolOutput = z.infer<z.ZodObject<typeof capabilitiesToolOutputSchema>>;
 export type MetadataToolOutput = z.infer<z.ZodObject<typeof metadataToolOutputSchema>>;
+export type FrameToolOutput = z.infer<z.ZodObject<typeof frameToolOutputSchema>>;
 
 export function parseSchema(
   responseSchemaJson?: string,

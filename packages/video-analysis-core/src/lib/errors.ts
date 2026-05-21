@@ -4,6 +4,7 @@ export type ErrorStage =
   | "download"
   | "upload"
   | "file_processing"
+  | "timestamp_refinement"
   | "token_budget"
   | "cache_create"
   | "short_video_generate"

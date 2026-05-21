@@ -5,7 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
-import { YT_DLP_DEFAULT_FORMAT, YT_DLP_OUTPUT_TEMPLATE } from "../lib/constants.js";
+import { YT_DLP_DEFAULT_FORMAT, YT_DLP_FRAME_FORMAT, YT_DLP_OUTPUT_TEMPLATE } from "../lib/constants.js";
 import type { DownloadedVideo, LongVideoStrategy } from "../lib/types.js";
 
 const execFileAsync = promisify(execFile);
@@ -193,6 +193,7 @@ async function downloadWithYtDlp(
   normalizedYoutubeUrl: string,
   extraArgs: string[],
   tempPrefix: string,
+  format = YT_DLP_DEFAULT_FORMAT,
   options: CommandOptions = {}
 ): Promise<DownloadedVideo> {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), tempPrefix));
@@ -207,7 +208,7 @@ async function downloadWithYtDlp(
         "--no-warnings",
         "--no-playlist",
         "--format",
-        YT_DLP_DEFAULT_FORMAT,
+        format,
         ...extraArgs,
         "--output",
         outputTemplate,
@@ -227,7 +228,7 @@ export async function downloadYouTubeVideo(
   normalizedYoutubeUrl: string,
   options: CommandOptions = {}
 ): Promise<DownloadedVideo> {
-  return downloadWithYtDlp(normalizedYoutubeUrl, [], "youtube-analyzer-", options);
+  return downloadWithYtDlp(normalizedYoutubeUrl, [], "youtube-analyzer-", YT_DLP_DEFAULT_FORMAT, options);
 }
 
 export async function downloadYouTubeVideoSegment(
@@ -248,8 +249,77 @@ export async function downloadYouTubeVideoSegment(
       "--force-keyframes-at-cuts",
     ],
     "youtube-analyzer-segment-",
+    YT_DLP_DEFAULT_FORMAT,
     options
   );
+}
+
+export type ExtractedYouTubeFrame = {
+  jpegBase64: string;
+  sizeBytes: number;
+};
+
+export async function extractYouTubeFrame(
+  normalizedYoutubeUrl: string,
+  timestampSeconds: number,
+  options: CommandOptions & {
+    jpegQuality?: number;
+    searchWindowSeconds?: number;
+  } = {}
+): Promise<ExtractedYouTubeFrame> {
+  const searchWindowSeconds = options.searchWindowSeconds ?? 6;
+  const halfWindowSeconds = searchWindowSeconds / 2;
+  const segmentStartSeconds = Math.max(0, timestampSeconds - halfWindowSeconds);
+  const segmentEndSeconds = timestampSeconds + halfWindowSeconds;
+  const segmentSeekSeconds = timestampSeconds - segmentStartSeconds;
+  const jpegQuality = options.jpegQuality ?? 2;
+  const downloadedVideo = await downloadWithYtDlp(
+    normalizedYoutubeUrl,
+    [
+      "--download-sections",
+      `*${formatYtDlpSectionTimestamp(segmentStartSeconds)}-${formatYtDlpSectionTimestamp(segmentEndSeconds)}`,
+      "--force-keyframes-at-cuts",
+    ],
+    "youtube-analyzer-frame-",
+    YT_DLP_FRAME_FORMAT,
+    options
+  );
+  const framePath = path.join(downloadedVideo.tempDir, "frame.jpg");
+
+  try {
+    await runCommand(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        formatYtDlpSectionTimestamp(segmentSeekSeconds),
+        "-i",
+        downloadedVideo.filePath,
+        "-frames:v",
+        "1",
+        "-q:v",
+        String(jpegQuality),
+        "-update",
+        "1",
+        framePath,
+      ],
+      options
+    );
+
+    const frame = await fs.readFile(framePath);
+    if (frame.length <= 0) {
+      throw new Error("ffmpeg produced an empty frame image.");
+    }
+
+    return {
+      jpegBase64: frame.toString("base64"),
+      sizeBytes: frame.length,
+    };
+  } finally {
+    await fs.rm(downloadedVideo.tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 export async function getLongVideoRuntimeCapabilities(

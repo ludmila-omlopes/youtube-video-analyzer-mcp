@@ -48,7 +48,9 @@ Try a public video first to confirm your local setup works.
 
 ## The Request Times Out
 
-Long videos should use `analyze_long_youtube_video`, which is exposed as an MCP task. Some clients may still impose their own outer timeouts.
+Long videos should use `analyze_long_youtube_video`, which requires MCP task execution. Clients that only support synchronous tool calls with a fixed timeout, such as 120 seconds, should not call the task-only long-video tools for full VODs.
+
+Use a task-capable client, use the compatibility job tools (`start_long_youtube_analysis`, `get_long_youtube_analysis_status`, `get_long_youtube_analysis_result`, and `cancel_long_youtube_analysis`), or analyze shorter bounded windows with `analyze_youtube_video` and `startOffsetSeconds` / `endOffsetSeconds`.
 
 You can tune server-side values such as `MCP_TOOL_DEADLINE_MS`, `MCP_TASK_TTL_MS`, and Gemini stage timeouts. See [configuration.md](configuration.md).
 

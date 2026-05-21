@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { DiagnosticError } from "../core/index.js";
+import { DiagnosticError } from "@ludylops/video-analysis-core";
 import { createServer } from "../server.js";
 import { createConnectedInMemoryClient } from "./test-helpers.js";
 
@@ -55,6 +55,9 @@ export async function run(): Promise<void> {
           },
         };
       },
+      async getYouTubeFrame() {
+        throw new Error("Not used");
+      },
     },
   });
 
@@ -100,6 +103,9 @@ export async function run(): Promise<void> {
           message: "Missing YOUTUBE_API_KEY environment variable.",
           retryable: false,
         });
+      },
+      async getYouTubeFrame() {
+        throw new Error("Not used");
       },
     },
   });

@@ -21,6 +21,7 @@ export const TOKEN_BUDGET_RATIO = 0.7;
 export const TOKEN_BUDGET_FPS_CANDIDATES = [1, 0.5, 0.25] as const;
 export const YT_DLP_OUTPUT_TEMPLATE = "source.%(ext)s";
 export const YT_DLP_DEFAULT_FORMAT = "b[height<=480][ext=mp4]/b[height<=480]/b[ext=mp4]/b";
+export const YT_DLP_FRAME_FORMAT = "bv*[ext=mp4]/bv*/b[ext=mp4]/b";
 export const LOW_MEDIA_RESOLUTION = "MEDIA_RESOLUTION_LOW" as const;
 export const ALLOW_GEMINI_TEXT_JSON_FALLBACK = process.env.GEMINI_TEXT_JSON_FALLBACK === "true";
 
@@ -48,7 +49,12 @@ export const MODEL_INPUT_TOKEN_LIMITS: Record<string, number> = {
 };
 
 export const USER_CONFIG_DIR_NAME = "youtube-video-analyzer-mcp";
-export const RUNTIME_ENV_KEYS = ["GEMINI_API_KEY", "YOUTUBE_API_KEY", "GEMINI_MODEL", "YT_DLP_PATH"] as const;
+export const RUNTIME_ENV_KEYS = [
+  "GEMINI_API_KEY",
+  "YOUTUBE_API_KEY",
+  "GEMINI_MODEL",
+  "YT_DLP_PATH",
+] as const;
 
 export type RuntimeEnvKey = (typeof RUNTIME_ENV_KEYS)[number];
 export type UserConfig = Partial<Record<RuntimeEnvKey, string>>;

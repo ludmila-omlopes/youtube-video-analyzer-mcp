@@ -29,6 +29,9 @@ export async function run(): Promise<void> {
       async getYouTubeMetadata() {
         throw new Error("Not used");
       },
+      async getYouTubeFrame() {
+        throw new Error("Not used");
+      },
     },
   });
 
@@ -56,13 +59,16 @@ export async function run(): Promise<void> {
       recommendedWorkflow: [
         "Use get_youtube_analyzer_capabilities before long VOD analysis.",
         "Use analyze_youtube_video for short videos or bounded clips.",
-        "Use analyze_long_youtube_video for VODs and long videos; this server exposes it as an MCP task.",
+        "Use get_youtube_video_frame to extract a high-resolution JPEG frame at a timestamp when yt-dlp, ffmpeg, and temp dir support are available.",
+        "Use analyze_long_youtube_video for VODs and long videos; this server requires MCP task execution for it.",
         "For long videos, use strategy=url_chunks until yt-dlp and ffmpeg are available.",
         "Use continue_long_video_analysis only with a sessionId returned by analyze_long_youtube_video.",
       ],
       notes: [
         "timeoutSeconds controls internal Gemini generation calls, not the MCP client's outer timeout.",
+        "Clients with fixed synchronous tool-call timeouts, such as 120s, should use task execution, the start/get/cancel job tools, or bounded clips instead.",
         "uploaded_file requires yt-dlp, ffmpeg, and a writable temp directory.",
+        "get_youtube_video_frame requires yt-dlp, ffmpeg, and a writable temp directory.",
         "url_chunks does not require local download tools, but can require many Gemini calls for long VODs.",
       ],
     });

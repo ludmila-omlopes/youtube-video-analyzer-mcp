@@ -751,6 +751,103 @@ export async function generateStructuredJson(
   }
 }
 
+const timestampRefinementSchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    timestampSeconds: {
+      type: "number",
+      description: "The best exact timestamp in seconds for extracting the requested frame.",
+    },
+    reason: {
+      type: "string",
+      description: "Short reason for the selected timestamp.",
+    },
+    confidence: {
+      type: "number",
+      description: "Confidence from 0 to 1.",
+    },
+  },
+  required: ["timestampSeconds", "reason", "confidence"],
+} as const;
+
+function asFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export async function refineFrameTimestampWithGemini(
+  ai: GoogleGenAI,
+  params: {
+    model: string;
+    normalizedYoutubeUrl: string;
+    timestampSeconds: number;
+    windowSeconds: number;
+    refinementPrompt?: string;
+  },
+  context: GenerationContext
+): Promise<{ timestampSeconds: number; reason: string }> {
+  const halfWindowSeconds = params.windowSeconds / 2;
+  const startOffsetSeconds = Math.max(0, params.timestampSeconds - halfWindowSeconds);
+  const endOffsetSeconds = params.timestampSeconds + halfWindowSeconds;
+  const prompt = [
+    "Return valid JSON only.",
+    "Identify the best exact timestamp, in seconds, for extracting a real frame from the provided YouTube video.",
+    "Do not generate or describe an image. Do not invent visual details. Only choose a timestamp that should be used by a separate frame extraction tool.",
+    `The initial timestamp is ${params.timestampSeconds}s.`,
+    `Search only within ${startOffsetSeconds}s to ${endOffsetSeconds}s.`,
+    params.refinementPrompt ? `Frame cue:\n${params.refinementPrompt}` : "Choose the frame closest to the initial timestamp.",
+  ].join("\n\n");
+
+  const refined = await generateStructuredJson(
+    ai,
+    {
+      model: params.model,
+      prompt,
+      responseSchema: timestampRefinementSchema as Record<string, unknown>,
+      videoPart: buildVideoPart(
+        { kind: "youtube_url", normalizedYoutubeUrl: params.normalizedYoutubeUrl },
+        { startOffsetSeconds, endOffsetSeconds, fps: 1 }
+      ),
+    },
+    {
+      ...context,
+      stage: "timestamp_refinement",
+      code: "GEMINI_TIMESTAMP_REFINEMENT_FAILED",
+      failureMessage: "Failed to refine the video frame timestamp with Gemini.",
+      inputMode: "youtube_url",
+      responseMode: "schema_json",
+      details: {
+        ...context.details,
+        initialTimestampSeconds: params.timestampSeconds,
+        startOffsetSeconds,
+        endOffsetSeconds,
+      },
+    }
+  );
+
+  const timestamp = asFiniteNumber(refined.timestampSeconds);
+  if (timestamp === null || timestamp < startOffsetSeconds || timestamp > endOffsetSeconds) {
+    throw new DiagnosticError({
+      tool: context.tool,
+      code: "GEMINI_TIMESTAMP_REFINEMENT_FAILED",
+      stage: "timestamp_refinement",
+      message: "Gemini returned an invalid refined timestamp.",
+      retryable: false,
+      details: {
+        initialTimestampSeconds: params.timestampSeconds,
+        refinedTimestampSeconds: refined.timestampSeconds,
+        startOffsetSeconds,
+        endOffsetSeconds,
+      },
+    });
+  }
+
+  return {
+    timestampSeconds: timestamp,
+    reason: typeof refined.reason === "string" ? refined.reason : "",
+  };
+}
+
 export async function estimateTokenBudget(
   ai: GoogleGenAI,
   params: { model: string; uploadedFile: UploadedVideoHandle; prompt: string },

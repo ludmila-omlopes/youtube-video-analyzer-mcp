@@ -1,6 +1,6 @@
 # Tools
 
-This server exposes six MCP tools.
+This server exposes eleven MCP tools.
 
 ## `get_youtube_analyzer_capabilities`
 
@@ -22,6 +22,24 @@ Use it when:
 - You want metadata without sending the video to Gemini.
 
 Requires `YOUTUBE_API_KEY`.
+
+## `get_youtube_video_frame`
+
+Extracts a high-resolution JPEG frame from a public YouTube video at a timestamp.
+
+Use it when:
+
+- You need a visual reference, thumbnail candidate, or exact frame for downstream work.
+- You want the original available video resolution instead of the low-resolution media used for Gemini token budgeting.
+- `yt-dlp`, `ffmpeg`, and writable temp storage are available.
+
+Returns base64 JPEG data in structured content and an MCP `image/jpeg` content item. The tool only returns exact extracted frames; it does not use Gemini image generation as a fallback.
+
+Optional timestamp refinement:
+
+- Pass `timestampRefinementPrompt` when `timestampSeconds` is approximate and you can describe the desired frame.
+- Gemini will inspect only a bounded window around `timestampSeconds` and return JSON with a refined timestamp.
+- The JPEG still comes only from local `yt-dlp` and `ffmpeg` extraction.
 
 ## `analyze_youtube_video`
 
@@ -46,7 +64,7 @@ Use it when:
 
 ## `analyze_long_youtube_video`
 
-Analyzes long public YouTube videos and VODs as an MCP task.
+Analyzes long public YouTube videos and VODs as a required MCP task.
 
 Use it when:
 
@@ -56,9 +74,39 @@ Use it when:
 
 Call `get_youtube_analyzer_capabilities` first.
 
+Do not call this tool from a client that only supports synchronous tool calls with a fixed timeout such as 120 seconds. Use a task-capable client, or analyze shorter bounded windows with `analyze_youtube_video`.
+
+## `start_long_youtube_analysis`
+
+Starts long public YouTube video or VOD analysis as a server-managed background job and returns immediately.
+
+Use it when:
+
+- Your MCP client does not support MCP tasks.
+- Your MCP client has a fixed synchronous timeout such as 120 seconds.
+- You can poll for status and result with separate tool calls.
+
+Call `get_youtube_analyzer_capabilities` first, then call this tool with the same input shape as `analyze_long_youtube_video`.
+
+## `get_long_youtube_analysis_status`
+
+Returns the status and latest progress for a job created by `start_long_youtube_analysis`.
+
+Statuses are `queued`, `running`, `done`, `error`, and `cancelled`.
+
+## `get_long_youtube_analysis_result`
+
+Returns the final result for a job created by `start_long_youtube_analysis`.
+
+While the job is still `queued` or `running`, `result` and `error` are null. When the job is `done`, `result` contains the long-video analysis output. When the job is `error`, `error` contains structured diagnostic information.
+
+## `cancel_long_youtube_analysis`
+
+Cancels a queued or running job created by `start_long_youtube_analysis`.
+
 ## `continue_long_video_analysis`
 
-Asks follow-up questions against a previous long-video session.
+Asks follow-up questions against a previous long-video session as a required MCP task.
 
 Use it only after `analyze_long_youtube_video` returns a non-null `sessionId`.
 
