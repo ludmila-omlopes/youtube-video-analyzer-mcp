@@ -47,6 +47,9 @@ export async function run(): Promise<void> {
       async getYouTubeMetadata() {
         throw new Error("Not used");
       },
+      async getYouTubeFrame() {
+        throw new Error("Not used");
+      },
     },
   });
 

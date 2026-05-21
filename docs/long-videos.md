@@ -2,12 +2,26 @@
 
 Long videos and VODs need a different workflow because MCP clients and model providers can have outer request limits.
 
+`analyze_long_youtube_video` and `continue_long_video_analysis` require MCP task execution. Clients that only support synchronous tool calls with fixed timeouts, such as 120 seconds, should use the compatibility job tools instead.
+
 ## Recommended Workflow
 
 1. Call `get_youtube_analyzer_capabilities`.
 2. Use the recommended strategy from the response.
-3. Call `analyze_long_youtube_video`.
-4. If the result includes `sessionId`, use `continue_long_video_analysis` for follow-up questions.
+3. Call `analyze_long_youtube_video` through your client's task workflow.
+4. If the result includes `sessionId`, use `continue_long_video_analysis` through the task workflow for follow-up questions.
+
+## Compatibility Job Workflow
+
+Use this workflow when your MCP client does not support MCP tasks:
+
+1. Call `get_youtube_analyzer_capabilities`.
+2. Call `start_long_youtube_analysis`.
+3. Poll `get_long_youtube_analysis_status` until the status is `done`, `error`, or `cancelled`.
+4. Call `get_long_youtube_analysis_result`.
+5. Optionally call `cancel_long_youtube_analysis` if the job should stop.
+
+The start, status, result, and cancel calls are normal short MCP tool calls. The analysis continues in the server process between calls.
 
 ## Strategies
 

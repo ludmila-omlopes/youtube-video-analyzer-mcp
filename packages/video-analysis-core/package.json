@@ -1,0 +1,66 @@
+{
+  "name": "@ludylops/video-analysis-core",
+  "version": "0.1.0",
+  "description": "Reusable video analysis core for YouTube transcripts, media planning, chunking, and AI-powered long-video analysis",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./youtube": {
+      "types": "./dist/youtube-core/index.d.ts",
+      "import": "./dist/youtube-core/index.js"
+    },
+    "./youtube/runtime": {
+      "types": "./dist/youtube-core/youtube.d.ts",
+      "import": "./dist/youtube-core/youtube.js"
+    },
+    "./schemas": {
+      "types": "./dist/lib/schemas.d.ts",
+      "import": "./dist/lib/schemas.js"
+    },
+    "./errors": {
+      "types": "./dist/lib/errors.d.ts",
+      "import": "./dist/lib/errors.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "test": "tsx src/test/index.ts"
+  },
+  "keywords": [
+    "video-analysis",
+    "youtube",
+    "gemini",
+    "long-video",
+    "transcript",
+    "chunking",
+    "ai"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^1.45.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

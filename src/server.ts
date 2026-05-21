@@ -9,6 +9,7 @@ import {
   SERVER_INFO,
   DiagnosticError,
   asDiagnosticError,
+  cancelLongAnalysisJobOutputSchema,
   audioToolInputSchema,
   audioToolOutputSchema,
   capabilitiesToolInputSchema,
@@ -16,24 +17,37 @@ import {
   createRequestLogger,
   followUpToolInputSchema,
   followUpToolOutputSchema,
+  frameToolInputSchema,
+  frameToolOutputSchema,
   formatJson,
+  longAnalysisJobIdInputSchema,
+  longAnalysisJobResultOutputSchema,
+  longAnalysisJobStatusOutputSchema,
+  longAnalysisJobInputSchema,
   longToolInputSchema,
   longToolOutputSchema,
   metadataToolInputSchema,
   metadataToolOutputSchema,
   shortToolInputSchema,
   shortToolOutputSchema,
+  startLongAnalysisJobOutputSchema,
   type AnalysisExecutionContext,
+  type CancelLongAnalysisJobOutput,
   type CapabilitiesToolOutput,
   type FollowUpToolInput,
   type FollowUpToolOutput,
+  type FrameToolOutput,
+  type LongAnalysisJobResultOutput,
+  type LongAnalysisJobStatusOutput,
   type Logger,
   type LongToolInput,
   type LongToolOutput,
   type ProgressReporter,
+  type StartLongAnalysisJobOutput,
   type VideoAnalysisServiceLike,
-} from "./core/index.js";
-import { getLongVideoRuntimeCapabilities, type LongVideoRuntimeCapabilities } from "./core/youtube-core/youtube.js";
+} from "@ludylops/video-analysis-core";
+import { getLongVideoRuntimeCapabilities, type LongVideoRuntimeCapabilities } from "@ludylops/video-analysis-core/youtube/runtime";
+import { LongAnalysisJobStore, type LongAnalysisJob, type LongAnalysisJobError } from "./long-analysis-job-store.js";
 
 type StructuredSuccess = Record<string, unknown>;
 
@@ -61,6 +75,7 @@ type TaskCreateExtra = RequestExtra & {
 export type CreateServerOptions = {
   service?: VideoAnalysisServiceLike;
   taskStore?: ManagedTaskStore;
+  longAnalysisJobStore?: LongAnalysisJobStore;
   capabilitiesProvider?: () => Promise<LongVideoRuntimeCapabilities>;
   deadlines?: {
     toolMs?: number;
@@ -70,6 +85,16 @@ export type CreateServerOptions = {
 function createSuccessToolResult(structuredContent: StructuredSuccess) {
   return {
     content: [{ type: "text" as const, text: formatJson(structuredContent) }],
+    structuredContent,
+  };
+}
+
+function createImageToolResult(structuredContent: FrameToolOutput) {
+  return {
+    content: [
+      { type: "text" as const, text: formatJson(structuredContent) },
+      { type: "image" as const, data: structuredContent.jpegBase64, mimeType: structuredContent.mimeType },
+    ],
     structuredContent,
   };
 }
@@ -207,7 +232,8 @@ function createCapabilitiesOutput(capabilities: LongVideoRuntimeCapabilities, mc
     recommendedWorkflow: [
       "Use get_youtube_analyzer_capabilities before long VOD analysis.",
       "Use analyze_youtube_video for short videos or bounded clips.",
-      "Use analyze_long_youtube_video for VODs and long videos; this server exposes it as an MCP task.",
+      "Use get_youtube_video_frame to extract a high-resolution JPEG frame at a timestamp when yt-dlp, ffmpeg, and temp dir support are available.",
+      "Use analyze_long_youtube_video for VODs and long videos; this server requires MCP task execution for it.",
       hasUploadedFileSupport
         ? "For long videos, prefer strategy=uploaded_file or strategy=auto."
         : "For long videos, use strategy=url_chunks until yt-dlp and ffmpeg are available.",
@@ -215,18 +241,35 @@ function createCapabilitiesOutput(capabilities: LongVideoRuntimeCapabilities, mc
     ],
     notes: [
       "timeoutSeconds controls internal Gemini generation calls, not the MCP client's outer timeout.",
+      "Clients with fixed synchronous tool-call timeouts, such as 120s, should use task execution, the start/get/cancel job tools, or bounded clips instead.",
       "uploaded_file requires yt-dlp, ffmpeg, and a writable temp directory.",
+      "get_youtube_video_frame requires yt-dlp, ffmpeg, and a writable temp directory.",
       "url_chunks does not require local download tools, but can require many Gemini calls for long VODs.",
     ],
   };
 }
 
 function createProgressReporter(extra: RequestExtra, logger: Logger): ProgressReporter {
+  let lastProgress = Number.NEGATIVE_INFINITY;
+
   return async ({ progress, total, message }) => {
     if (extra._meta?.progressToken === undefined) {
       return;
     }
 
+    if (progress <= lastProgress) {
+      logger.warn("tool.progress_notification_skipped", {
+        progress,
+        lastProgress,
+        total: total ?? null,
+        message,
+        taskId: extra.taskId ?? null,
+        reason: "non_monotonic_progress",
+      });
+      return;
+    }
+
+    lastProgress = progress;
     logger.info("tool.progress_notification", { progress, total: total ?? null, message, taskId: extra.taskId ?? null });
     await extra.sendNotification({
       method: "notifications/progress",
@@ -237,6 +280,91 @@ function createProgressReporter(extra: RequestExtra, logger: Logger): ProgressRe
         message,
       },
     });
+  };
+}
+
+function createJobProgressReporter(jobStore: LongAnalysisJobStore, jobId: string, logger: Logger): ProgressReporter {
+  let lastProgress = Number.NEGATIVE_INFINITY;
+
+  return async (update) => {
+    if (update.progress <= lastProgress) {
+      logger.warn("job.progress_skipped", {
+        jobId,
+        progress: update.progress,
+        lastProgress,
+        total: update.total ?? null,
+        message: update.message,
+        reason: "non_monotonic_progress",
+      });
+      return;
+    }
+
+    lastProgress = update.progress;
+    logger.info("job.progress", {
+      jobId,
+      progress: update.progress,
+      total: update.total ?? null,
+      message: update.message,
+    });
+    jobStore.updateProgress(jobId, update);
+  };
+}
+
+function toJobError(error: unknown, toolName: string): LongAnalysisJobError {
+  const diagnostic = asDiagnosticError(error, {
+    tool: toolName,
+    code: "LONG_ANALYSIS_JOB_FAILED",
+    stage: "unknown",
+    message: "Long-video analysis job failed.",
+  });
+
+  return {
+    code: diagnostic.code,
+    stage: diagnostic.stage,
+    message: diagnostic.message,
+    retryable: diagnostic.retryable,
+    causeMessage: diagnostic.causeMessage ?? null,
+    details: diagnostic.details ?? null,
+  };
+}
+
+function createJobNotFoundError(toolName: string, jobId: string): DiagnosticError {
+  return new DiagnosticError({
+    tool: toolName,
+    code: "LONG_ANALYSIS_JOB_NOT_FOUND",
+    stage: "unknown",
+    message: `Long-video analysis job not found: ${jobId}.`,
+    retryable: false,
+  });
+}
+
+function createJobStatusOutput(job: LongAnalysisJob): LongAnalysisJobStatusOutput {
+  return {
+    jobId: job.jobId,
+    status: job.status,
+    progress: job.progress,
+    statusMessage: job.statusMessage,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
+function createJobResultOutput(job: LongAnalysisJob): LongAnalysisJobResultOutput {
+  return {
+    jobId: job.jobId,
+    status: job.status,
+    result: job.result,
+    error: job.error,
+    statusMessage: job.statusMessage,
+  };
+}
+
+function createCancelJobOutput(job: LongAnalysisJob): CancelLongAnalysisJobOutput {
+  const status = job.status === "done" || job.status === "error" ? job.status : "cancelled";
+  return {
+    jobId: job.jobId,
+    status,
+    statusMessage: job.statusMessage,
   };
 }
 
@@ -328,6 +456,7 @@ async function runLongTask<Args, Result extends StructuredSuccess>(params: {
 
 export function createServer(options: CreateServerOptions = {}): McpServer {
   const taskStore = options.taskStore ?? new ManagedTaskStore();
+  const longAnalysisJobStore = options.longAnalysisJobStore ?? new LongAnalysisJobStore();
   const service = options.service ?? createVideoAnalysisService();
   const capabilitiesProvider = options.capabilitiesProvider ?? (() => getLongVideoRuntimeCapabilities("uploaded_file"));
   const deadlines = {
@@ -444,6 +573,70 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           details: diagnostic.details,
         });
         return createErrorToolResult("get_youtube_video_metadata", logger.requestId, diagnostic);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_youtube_video_frame",
+    {
+      title: "Get YouTube Video Frame",
+      description: [
+        "Extract a high-resolution JPEG frame from a public YouTube video at a timestamp.",
+        "Uses yt-dlp to download a small best-quality video window around the timestamp and ffmpeg to extract one JPEG frame without downscaling.",
+        "Returns the JPEG as base64 structured content and as an MCP image content item.",
+      ].join(" "),
+      inputSchema: frameToolInputSchema,
+      outputSchema: frameToolOutputSchema,
+    },
+    async ({ youtubeUrl, timestampSeconds, jpegQuality, searchWindowSeconds }, extra) => {
+      const logger = createRequestLogger("get_youtube_video_frame");
+      const startedAt = Date.now();
+      logger.info("tool.start", {
+        youtubeUrl,
+        timestampSeconds,
+        jpegQuality: jpegQuality ?? null,
+        searchWindowSeconds: searchWindowSeconds ?? null,
+      });
+
+      try {
+        const result = await runWithDeadline(
+          (signal) =>
+            service.getYouTubeFrame(
+              { youtubeUrl, timestampSeconds, jpegQuality, searchWindowSeconds },
+              createExecutionContext("get_youtube_video_frame", logger, signal)
+            ),
+          {
+            toolName: "get_youtube_video_frame",
+            sourceSignal: extra.signal,
+            timeoutMs: deadlines.toolMs,
+            timeoutMessage: `MCP tool deadline exceeded after ${deadlines.toolMs}ms.`,
+          }
+        );
+
+        logger.info("tool.success", {
+          durationMs: Date.now() - startedAt,
+          timestampSeconds: result.timestampSeconds,
+          sizeBytes: result.sizeBytes,
+        });
+        return createImageToolResult(result);
+      } catch (error) {
+        const diagnostic = asDiagnosticError(error, {
+          tool: "get_youtube_video_frame",
+          code: "YOUTUBE_FRAME_EXTRACTION_FAILED",
+          stage: "download",
+          message: "YouTube frame extraction failed.",
+        });
+        logger.error("tool.failure", {
+          durationMs: Date.now() - startedAt,
+          code: diagnostic.code,
+          stage: diagnostic.stage,
+          message: diagnostic.message,
+          retryable: diagnostic.retryable,
+          causeMessage: diagnostic.causeMessage,
+          details: diagnostic.details,
+        });
+        return createErrorToolResult("get_youtube_video_frame", logger.requestId, diagnostic);
       }
     }
   );
@@ -575,6 +768,186 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     }
   );
 
+  server.registerTool(
+    "start_long_youtube_analysis",
+    {
+      title: "Start Long YouTube Analysis Job",
+      description: [
+        "Starts long public YouTube video or VOD analysis as a server-managed background job and returns immediately.",
+        "Use this compatibility tool when your MCP client does not support MCP tasks or has a fixed synchronous tool-call timeout such as 120s.",
+        "Poll get_long_youtube_analysis_status, fetch the final output with get_long_youtube_analysis_result, and cancel with cancel_long_youtube_analysis.",
+        "Call get_youtube_analyzer_capabilities first to choose the strategy.",
+      ].join(" "),
+      inputSchema: longAnalysisJobInputSchema,
+      outputSchema: startLongAnalysisJobOutputSchema,
+    },
+    async (args) => {
+      const input = args as LongToolInput;
+      const logger = createRequestLogger("start_long_youtube_analysis");
+      const startedAt = Date.now();
+      logger.info("tool.start", {
+        youtubeUrl: input.youtubeUrl,
+        strategyRequested: input.strategy ?? "auto",
+        chunkModel: input.chunkModel ?? null,
+        finalModel: input.finalModel ?? null,
+        preferCache: input.preferCache ?? null,
+        timeoutSeconds: input.timeoutSeconds ?? null,
+        maxChunkDurationSeconds: input.maxChunkDurationSeconds ?? null,
+        maxRetries: input.maxRetries ?? null,
+      });
+
+      try {
+        const job = longAnalysisJobStore.createJob(input, DEFAULT_TASK_TTL_MS);
+        const output: StartLongAnalysisJobOutput = {
+          jobId: job.jobId,
+          status: "queued",
+          statusMessage: "Long-video analysis job queued.",
+        };
+
+        void Promise.resolve().then(async () => {
+          longAnalysisJobStore.markRunning(job.jobId);
+          logger.info("job.start", { jobId: job.jobId });
+
+          try {
+            const currentJob = longAnalysisJobStore.getJob(job.jobId);
+            if (!currentJob || currentJob.controller.signal.aborted) {
+              return;
+            }
+
+            const result = await service.analyzeLong(
+              input,
+              createExecutionContext(
+                "start_long_youtube_analysis",
+                logger,
+                currentJob.controller.signal,
+                createJobProgressReporter(longAnalysisJobStore, job.jobId, logger)
+              )
+            );
+
+            if (currentJob.controller.signal.aborted) {
+              longAnalysisJobStore.cancelJob(job.jobId, "Long-video analysis job cancelled.");
+              return;
+            }
+
+            longAnalysisJobStore.completeJob(job.jobId, result);
+            logger.info("job.success", {
+              durationMs: Date.now() - startedAt,
+              jobId: job.jobId,
+              strategyRequested: result.strategyRequested,
+              strategyUsed: result.strategyUsed,
+              chunkCount: result.chunkCount,
+              cacheUsed: result.cacheUsed,
+              sessionId: result.sessionId,
+            });
+          } catch (error) {
+            const currentJob = longAnalysisJobStore.getJob(job.jobId);
+            if (currentJob?.controller.signal.aborted) {
+              longAnalysisJobStore.cancelJob(job.jobId, "Long-video analysis job cancelled.");
+              return;
+            }
+
+            const jobError = toJobError(error, "start_long_youtube_analysis");
+            longAnalysisJobStore.failJob(job.jobId, jobError);
+            logger.error("job.failure", {
+              durationMs: Date.now() - startedAt,
+              jobId: job.jobId,
+              ...jobError,
+            });
+          }
+        });
+
+        logger.info("tool.success", { durationMs: Date.now() - startedAt, jobId: job.jobId });
+        return createSuccessToolResult(output);
+      } catch (error) {
+        const diagnostic = asDiagnosticError(error, {
+          tool: "start_long_youtube_analysis",
+          code: "LONG_ANALYSIS_JOB_START_FAILED",
+          stage: "unknown",
+          message: "Failed to start long-video analysis job.",
+        });
+        logger.error("tool.failure", {
+          durationMs: Date.now() - startedAt,
+          code: diagnostic.code,
+          stage: diagnostic.stage,
+          message: diagnostic.message,
+          retryable: diagnostic.retryable,
+          causeMessage: diagnostic.causeMessage,
+          details: diagnostic.details,
+        });
+        return createErrorToolResult("start_long_youtube_analysis", logger.requestId, diagnostic);
+      }
+    }
+  );
+
+  server.registerTool(
+    "get_long_youtube_analysis_status",
+    {
+      title: "Get Long YouTube Analysis Job Status",
+      description: "Returns the status and latest progress for a job created by start_long_youtube_analysis.",
+      inputSchema: longAnalysisJobIdInputSchema,
+      outputSchema: longAnalysisJobStatusOutputSchema,
+    },
+    async ({ jobId }) => {
+      const logger = createRequestLogger("get_long_youtube_analysis_status");
+      logger.info("tool.start", { jobId });
+
+      const job = longAnalysisJobStore.getJob(jobId);
+      if (!job) {
+        return createErrorToolResult("get_long_youtube_analysis_status", logger.requestId, createJobNotFoundError("get_long_youtube_analysis_status", jobId));
+      }
+
+      logger.info("tool.success", { jobId, status: job.status });
+      return createSuccessToolResult(createJobStatusOutput(job));
+    }
+  );
+
+  server.registerTool(
+    "get_long_youtube_analysis_result",
+    {
+      title: "Get Long YouTube Analysis Job Result",
+      description: [
+        "Returns the final result for a job created by start_long_youtube_analysis.",
+        "While the job is queued or running, result and error are null and status indicates that the job is not done yet.",
+      ].join(" "),
+      inputSchema: longAnalysisJobIdInputSchema,
+      outputSchema: longAnalysisJobResultOutputSchema,
+    },
+    async ({ jobId }) => {
+      const logger = createRequestLogger("get_long_youtube_analysis_result");
+      logger.info("tool.start", { jobId });
+
+      const job = longAnalysisJobStore.getJob(jobId);
+      if (!job) {
+        return createErrorToolResult("get_long_youtube_analysis_result", logger.requestId, createJobNotFoundError("get_long_youtube_analysis_result", jobId));
+      }
+
+      logger.info("tool.success", { jobId, status: job.status });
+      return createSuccessToolResult(createJobResultOutput(job));
+    }
+  );
+
+  server.registerTool(
+    "cancel_long_youtube_analysis",
+    {
+      title: "Cancel Long YouTube Analysis Job",
+      description: "Cancels a queued or running job created by start_long_youtube_analysis.",
+      inputSchema: longAnalysisJobIdInputSchema,
+      outputSchema: cancelLongAnalysisJobOutputSchema,
+    },
+    async ({ jobId }) => {
+      const logger = createRequestLogger("cancel_long_youtube_analysis");
+      logger.info("tool.start", { jobId });
+
+      const job = longAnalysisJobStore.cancelJob(jobId);
+      if (!job) {
+        return createErrorToolResult("cancel_long_youtube_analysis", logger.requestId, createJobNotFoundError("cancel_long_youtube_analysis", jobId));
+      }
+
+      logger.info("tool.success", { jobId, status: job.status });
+      return createSuccessToolResult(createCancelJobOutput(job));
+    }
+  );
+
   server.experimental.tasks.registerToolTask<typeof longToolInputSchema, typeof longToolOutputSchema>(
       "analyze_long_youtube_video",
       {
@@ -582,7 +955,8 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         description: [
           "Analyze a long public YouTube video with Gemini long-video handling.",
           "Call get_youtube_analyzer_capabilities first to choose the strategy.",
-          "This stdio server exposes this tool as an MCP task; clients that do not support tasks may still have outer tool-call timeouts.",
+          "This stdio server requires MCP task execution for this tool.",
+          "Clients with fixed synchronous tool-call timeouts, such as 120s, should not call this tool unless they support MCP tasks.",
           "Auto mode prefers uploaded-file analysis first because Files API is the recommended path for long videos, and falls back to URL chunks when needed.",
           "uploaded_file requires yt-dlp, ffmpeg, and a writable temp directory.",
           "Use strategy=url_chunks when local download tools are unavailable; it avoids yt-dlp but can require many Gemini calls.",
@@ -590,7 +964,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         ].join(" "),
         inputSchema: longToolInputSchema,
         outputSchema: longToolOutputSchema,
-        execution: { taskSupport: "optional" },
+        execution: { taskSupport: "required" },
       },
       {
         async createTask(args, extra) {
@@ -645,7 +1019,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         ].join(" "),
         inputSchema: followUpToolInputSchema,
         outputSchema: followUpToolOutputSchema,
-        execution: { taskSupport: "optional" },
+        execution: { taskSupport: "required" },
       },
       {
         async createTask(args, extra) {

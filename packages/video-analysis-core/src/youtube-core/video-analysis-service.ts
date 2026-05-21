@@ -17,12 +17,14 @@ import type {
   LongToolOutput,
   MetadataToolInput,
   MetadataToolOutput,
+  FrameToolInput,
+  FrameToolOutput,
   ShortToolInput,
   ShortToolOutput,
 } from "./schemas.js";
 import type { AnalysisSessionStore } from "./session-store.js";
 import { fetchYouTubeVideoMetadata } from "./youtube-metadata.js";
-import { normalizeYouTubeUrl } from "./youtube.js";
+import { extractYouTubeFrame, normalizeYouTubeUrl } from "./youtube.js";
 
 export type VideoAnalysisServiceDeps = {
   ai: GoogleGenAI;
@@ -35,6 +37,7 @@ export interface VideoAnalysisServiceLike {
   analyzeLong(input: LongToolInput, context: AnalysisExecutionContext): Promise<LongToolOutput>;
   continueLong(input: FollowUpToolInput, context: AnalysisExecutionContext): Promise<FollowUpToolOutput>;
   getYouTubeMetadata(input: MetadataToolInput, context: AnalysisExecutionContext): Promise<MetadataToolOutput>;
+  getYouTubeFrame(input: FrameToolInput, context: AnalysisExecutionContext): Promise<FrameToolOutput>;
 }
 
 export class VideoAnalysisService implements VideoAnalysisServiceLike {
@@ -73,5 +76,33 @@ export class VideoAnalysisService implements VideoAnalysisServiceLike {
       normalizedYoutubeUrl,
       signal: context.abortSignal,
     });
+  }
+
+  async getYouTubeFrame(input: FrameToolInput, context: AnalysisExecutionContext): Promise<FrameToolOutput> {
+    const normalizedYoutubeUrl = normalizeYouTubeUrl(input.youtubeUrl);
+    if (!normalizedYoutubeUrl) {
+      throw new DiagnosticError({
+        tool: context.tool,
+        code: "INVALID_YOUTUBE_URL",
+        stage: "download",
+        message: "youtubeUrl must be a valid YouTube video URL.",
+        retryable: false,
+      });
+    }
+
+    const frame = await extractYouTubeFrame(normalizedYoutubeUrl, input.timestampSeconds, {
+      signal: context.abortSignal,
+      jpegQuality: input.jpegQuality,
+      searchWindowSeconds: input.searchWindowSeconds,
+    });
+
+    return {
+      youtubeUrl: input.youtubeUrl,
+      normalizedYoutubeUrl,
+      timestampSeconds: input.timestampSeconds,
+      mimeType: "image/jpeg",
+      jpegBase64: frame.jpegBase64,
+      sizeBytes: frame.sizeBytes,
+    };
   }
 }

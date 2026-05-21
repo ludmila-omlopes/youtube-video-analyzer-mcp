@@ -4,6 +4,28 @@ import { ManagedTaskStore } from "../task-store.js";
 import { createServer } from "../server.js";
 import { createConnectedInMemoryClient } from "./test-helpers.js";
 
+async function collectTaskToolResult(client: Awaited<ReturnType<typeof createConnectedInMemoryClient>>) {
+  let result: unknown;
+
+  for await (const message of client.experimental.tasks.callToolStream({
+    name: "continue_long_video_analysis",
+    arguments: {
+      sessionId: "session-1",
+      analysisPrompt: "Continue the analysis",
+    },
+  })) {
+    if (message.type === "error") {
+      throw message.error;
+    }
+
+    if (message.type === "result") {
+      result = message.result;
+    }
+  }
+
+  return result as { isError?: boolean; structuredContent?: unknown };
+}
+
 export async function run(): Promise<void> {
   const taskStore = new ManagedTaskStore();
   const server = createServer({
@@ -32,19 +54,30 @@ export async function run(): Promise<void> {
       async getYouTubeMetadata() {
         throw new Error("Not used");
       },
+      async getYouTubeFrame() {
+        throw new Error("Not used");
+      },
     },
   });
 
   const client = await createConnectedInMemoryClient(server);
 
   try {
-    const result = await client.callTool({
-      name: "continue_long_video_analysis",
-      arguments: {
-        sessionId: "session-1",
-        analysisPrompt: "Continue the analysis",
-      },
-    });
+    await client.listTools();
+
+    await assert.rejects(
+      () =>
+        client.callTool({
+          name: "continue_long_video_analysis",
+          arguments: {
+            sessionId: "session-1",
+            analysisPrompt: "Continue the analysis",
+          },
+        }),
+      /requires task-based execution/
+    );
+
+    const result = await collectTaskToolResult(client);
 
     assert.equal(result.isError, undefined);
     assert.deepEqual(result.structuredContent, {

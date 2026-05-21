@@ -4,6 +4,13 @@ All notable changes to this project are documented here.
 
 This project follows semantic versioning where practical.
 
+## Unreleased
+
+### Added
+
+- `get_youtube_video_frame`, a new MCP tool for extracting a high-resolution JPEG frame from a YouTube video timestamp.
+- Reusable core frame extraction support using `yt-dlp` and `ffmpeg`.
+
 ## 0.3.0 - 2026-05-18
 
 ### Added
@@ -18,6 +25,9 @@ This project follows semantic versioning where practical.
 
 - Expanded README with install, MCP client config, tool, long-video, and publishing guidance.
 - Improved runtime guidance for `yt-dlp`, `ffmpeg`, and long-video strategies.
+- Long-video tools now require MCP task execution so synchronous clients with fixed timeouts fail fast instead of timing out mid-analysis.
+- Added compatibility background job tools for long-video analysis clients that do not support MCP tasks.
+- Started the npm workspace monorepo split with reusable `@ludylops/video-analysis-core` package consumed by the MCP server.
 
 ### Notes
 
