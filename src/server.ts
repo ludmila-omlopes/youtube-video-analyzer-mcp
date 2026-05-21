@@ -93,7 +93,7 @@ function createImageToolResult(structuredContent: FrameToolOutput) {
   return {
     content: [
       { type: "text" as const, text: formatJson(structuredContent) },
-      { type: "image" as const, data: structuredContent.jpegBase64, mimeType: structuredContent.mimeType },
+      { type: "image" as const, data: structuredContent.imageBase64, mimeType: structuredContent.mimeType },
     ],
     structuredContent,
   };
@@ -589,7 +589,18 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       inputSchema: frameToolInputSchema,
       outputSchema: frameToolOutputSchema,
     },
-    async ({ youtubeUrl, timestampSeconds, jpegQuality, searchWindowSeconds }, extra) => {
+    async (
+      {
+        youtubeUrl,
+        timestampSeconds,
+        jpegQuality,
+        searchWindowSeconds,
+        timestampRefinementPrompt,
+        timestampRefinementWindowSeconds,
+        timestampRefinementModel,
+      },
+      extra
+    ) => {
       const logger = createRequestLogger("get_youtube_video_frame");
       const startedAt = Date.now();
       logger.info("tool.start", {
@@ -597,13 +608,24 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         timestampSeconds,
         jpegQuality: jpegQuality ?? null,
         searchWindowSeconds: searchWindowSeconds ?? null,
+        timestampRefinementRequested: Boolean(timestampRefinementPrompt),
+        timestampRefinementWindowSeconds: timestampRefinementWindowSeconds ?? null,
+        timestampRefinementModel: timestampRefinementModel ?? null,
       });
 
       try {
         const result = await runWithDeadline(
           (signal) =>
             service.getYouTubeFrame(
-              { youtubeUrl, timestampSeconds, jpegQuality, searchWindowSeconds },
+              {
+                youtubeUrl,
+                timestampSeconds,
+                jpegQuality,
+                searchWindowSeconds,
+                timestampRefinementPrompt,
+                timestampRefinementWindowSeconds,
+                timestampRefinementModel,
+              },
               createExecutionContext("get_youtube_video_frame", logger, signal)
             ),
           {
@@ -617,7 +639,10 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         logger.info("tool.success", {
           durationMs: Date.now() - startedAt,
           timestampSeconds: result.timestampSeconds,
+          requestedTimestampSeconds: result.requestedTimestampSeconds,
+          timestampSource: result.timestampSource,
           sizeBytes: result.sizeBytes,
+          source: result.source,
         });
         return createImageToolResult(result);
       } catch (error) {

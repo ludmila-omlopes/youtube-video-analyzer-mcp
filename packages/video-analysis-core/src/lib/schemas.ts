@@ -225,6 +225,26 @@ export const frameToolInputSchema = {
     .max(30)
     .optional()
     .describe("Small download window around the timestamp, in seconds. Defaults to 6."),
+  timestampRefinementPrompt: z
+    .string()
+    .trim()
+    .min(1)
+    .max(1000)
+    .optional()
+    .describe("Optional visual cue for Gemini to refine the timestamp before local extraction. Gemini returns only a timestamp; it never generates the frame."),
+  timestampRefinementWindowSeconds: z
+    .number()
+    .finite()
+    .min(5)
+    .max(300)
+    .optional()
+    .describe("Window around timestampSeconds that Gemini may inspect when refining the timestamp. Defaults to 60."),
+  timestampRefinementModel: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe("Optional Gemini model override used only for timestamp refinement."),
 } satisfies z.ZodRawShape;
 
 const jsonObjectSchema = z.record(z.string(), z.unknown());
@@ -427,7 +447,13 @@ export const frameToolOutputSchema = {
   youtubeUrl: z.string(),
   normalizedYoutubeUrl: z.string(),
   timestampSeconds: z.number(),
+  requestedTimestampSeconds: z.number(),
+  timestampSource: z.enum(["requested", "gemini_refined"]),
+  timestampRefinementReason: nullableStringSchema,
+  source: z.literal("local_exact"),
+  isExactFrame: z.literal(true),
   mimeType: z.literal("image/jpeg"),
+  imageBase64: z.string(),
   jpegBase64: z.string(),
   sizeBytes: z.number(),
 } satisfies z.ZodRawShape;

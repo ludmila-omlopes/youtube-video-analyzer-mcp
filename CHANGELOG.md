@@ -10,6 +10,7 @@ This project follows semantic versioning where practical.
 
 - `get_youtube_video_frame`, a new MCP tool for extracting a high-resolution JPEG frame from a YouTube video timestamp.
 - Reusable core frame extraction support using `yt-dlp` and `ffmpeg`.
+- Optional Gemini timestamp refinement for frame extraction; Gemini returns JSON timestamps only, while the frame bytes still come from `yt-dlp` and `ffmpeg`.
 
 ## 0.3.0 - 2026-05-18
 

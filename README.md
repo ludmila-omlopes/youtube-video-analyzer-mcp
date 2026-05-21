@@ -97,7 +97,7 @@ MCP_LOG_LEVEL=warn
 
 - `get_youtube_analyzer_capabilities`: inspects local support for long-video strategies.
 - `get_youtube_video_metadata`: fetches normalized public YouTube metadata.
-- `get_youtube_video_frame`: extracts a high-resolution JPEG frame at a timestamp.
+- `get_youtube_video_frame`: extracts a high-resolution JPEG frame at a timestamp, with optional Gemini timestamp refinement before local extraction.
 - `analyze_youtube_video`: analyzes short videos or bounded clip windows.
 - `analyze_youtube_video_audio`: analyzes speech-focused videos using audio-first instructions.
 - `analyze_long_youtube_video`: analyzes long videos or VODs as a required MCP task.
@@ -134,7 +134,7 @@ Read the full guide in [docs/long-videos.md](docs/long-videos.md).
 
 ## Privacy And Limitations
 
-This server sends the YouTube URL, prompts, and relevant media or derived chunks to Google Gemini. With `strategy=uploaded_file`, local tools may download temporary media before uploading it to Gemini. `get_youtube_video_frame` downloads a small temporary high-quality video window and returns a JPEG frame. With `strategy=url_chunks`, the server avoids local media downloads but may make more Gemini calls.
+This server sends the YouTube URL, prompts, and relevant media or derived chunks to Google Gemini. With `strategy=uploaded_file`, local tools may download temporary media before uploading it to Gemini. `get_youtube_video_frame` downloads a small temporary high-quality video window and returns an exact JPEG frame; if timestamp refinement is requested, Gemini is used only to choose a timestamp, not to create image pixels. With `strategy=url_chunks`, the server avoids local media downloads but may make more Gemini calls.
 
 Private, deleted, age-restricted, member-only, DRM-protected, or region-blocked videos may fail depending on YouTube and Gemini access. Users are responsible for complying with YouTube terms, Gemini API terms, copyright rules, and local law.
 

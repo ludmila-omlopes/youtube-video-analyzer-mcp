@@ -49,7 +49,12 @@ export const MODEL_INPUT_TOKEN_LIMITS: Record<string, number> = {
 };
 
 export const USER_CONFIG_DIR_NAME = "youtube-video-analyzer-mcp";
-export const RUNTIME_ENV_KEYS = ["GEMINI_API_KEY", "YOUTUBE_API_KEY", "GEMINI_MODEL", "YT_DLP_PATH"] as const;
+export const RUNTIME_ENV_KEYS = [
+  "GEMINI_API_KEY",
+  "YOUTUBE_API_KEY",
+  "GEMINI_MODEL",
+  "YT_DLP_PATH",
+] as const;
 
 export type RuntimeEnvKey = (typeof RUNTIME_ENV_KEYS)[number];
 export type UserConfig = Partial<Record<RuntimeEnvKey, string>>;

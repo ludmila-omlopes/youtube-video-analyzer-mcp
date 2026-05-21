@@ -1,5 +1,7 @@
 import type { GoogleGenAI } from "@google/genai";
 
+import { DEFAULT_MODEL, GENERATION_TIMEOUT_MS } from "../lib/constants.js";
+import { refineFrameTimestampWithGemini } from "../lib/gemini.js";
 import {
   analyzeYouTubeVideoAudio,
   analyzeLongVideo,
@@ -7,7 +9,7 @@ import {
   continueLongVideoAnalysis,
   type AnalysisExecutionContext,
 } from "./analysis.js";
-import { DiagnosticError } from "../lib/errors.js";
+import { DiagnosticError, asDiagnosticError } from "../lib/errors.js";
 import type {
   AudioToolInput,
   AudioToolOutput,
@@ -90,19 +92,71 @@ export class VideoAnalysisService implements VideoAnalysisServiceLike {
       });
     }
 
-    const frame = await extractYouTubeFrame(normalizedYoutubeUrl, input.timestampSeconds, {
-      signal: context.abortSignal,
-      jpegQuality: input.jpegQuality,
-      searchWindowSeconds: input.searchWindowSeconds,
-    });
+    const requestedTimestampSeconds = input.timestampSeconds;
+    let extractionTimestampSeconds = requestedTimestampSeconds;
+    let timestampSource: FrameToolOutput["timestampSource"] = "requested";
+    let timestampRefinementReason: string | null = null;
 
-    return {
-      youtubeUrl: input.youtubeUrl,
-      normalizedYoutubeUrl,
-      timestampSeconds: input.timestampSeconds,
-      mimeType: "image/jpeg",
-      jpegBase64: frame.jpegBase64,
-      sizeBytes: frame.sizeBytes,
-    };
+    if (input.timestampRefinementPrompt) {
+      const refined = await refineFrameTimestampWithGemini(
+        this.deps.ai,
+        {
+          model: input.timestampRefinementModel || DEFAULT_MODEL,
+          normalizedYoutubeUrl,
+          timestampSeconds: requestedTimestampSeconds,
+          windowSeconds: input.timestampRefinementWindowSeconds ?? 60,
+          refinementPrompt: input.timestampRefinementPrompt,
+        },
+        {
+          logger: context.logger,
+          tool: context.tool,
+          stage: "timestamp_refinement",
+          code: "GEMINI_TIMESTAMP_REFINEMENT_FAILED",
+          failureMessage: "Failed to refine the video frame timestamp with Gemini.",
+          inputMode: "youtube_url",
+          responseMode: "schema_json",
+          timeoutMs: GENERATION_TIMEOUT_MS,
+          abortSignal: context.abortSignal,
+        }
+      );
+      extractionTimestampSeconds = refined.timestampSeconds;
+      timestampSource = "gemini_refined";
+      timestampRefinementReason = refined.reason || null;
+      context.logger.info("frame.timestamp_refined", {
+        requestedTimestampSeconds,
+        extractionTimestampSeconds,
+        model: input.timestampRefinementModel || DEFAULT_MODEL,
+      });
+    }
+
+    try {
+      const frame = await extractYouTubeFrame(normalizedYoutubeUrl, extractionTimestampSeconds, {
+        signal: context.abortSignal,
+        jpegQuality: input.jpegQuality,
+        searchWindowSeconds: input.searchWindowSeconds,
+      });
+
+      return {
+        youtubeUrl: input.youtubeUrl,
+        normalizedYoutubeUrl,
+        timestampSeconds: extractionTimestampSeconds,
+        requestedTimestampSeconds,
+        timestampSource,
+        timestampRefinementReason,
+        source: "local_exact",
+        isExactFrame: true,
+        mimeType: "image/jpeg",
+        imageBase64: frame.jpegBase64,
+        jpegBase64: frame.jpegBase64,
+        sizeBytes: frame.sizeBytes,
+      };
+    } catch (error) {
+      throw asDiagnosticError(error, {
+        tool: context.tool,
+        code: "YOUTUBE_FRAME_EXTRACTION_FAILED",
+        stage: "download",
+        message: "Failed to extract an exact video frame with yt-dlp and ffmpeg.",
+      });
+    }
   }
 }

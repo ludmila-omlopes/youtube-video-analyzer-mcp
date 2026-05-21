@@ -33,7 +33,13 @@ Use it when:
 - You want the original available video resolution instead of the low-resolution media used for Gemini token budgeting.
 - `yt-dlp`, `ffmpeg`, and writable temp storage are available.
 
-Returns `jpegBase64` in structured content and an MCP `image/jpeg` content item.
+Returns base64 JPEG data in structured content and an MCP `image/jpeg` content item. The tool only returns exact extracted frames; it does not use Gemini image generation as a fallback.
+
+Optional timestamp refinement:
+
+- Pass `timestampRefinementPrompt` when `timestampSeconds` is approximate and you can describe the desired frame.
+- Gemini will inspect only a bounded window around `timestampSeconds` and return JSON with a refined timestamp.
+- The JPEG still comes only from local `yt-dlp` and `ffmpeg` extraction.
 
 ## `analyze_youtube_video`
 

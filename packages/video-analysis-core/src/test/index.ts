@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-
+import type { GoogleGenAI } from "@google/genai";
+import { refineFrameTimestampWithGemini } from "../lib/gemini.js";
 import { parseSchema } from "../lib/schemas.js";
 import { createAdaptiveBatchPlan, createAdaptiveChunkPlan } from "../youtube-core/chunk-planner.js";
 import { normalizeYouTubeUrl } from "../youtube-core/youtube.js";
@@ -79,11 +80,63 @@ async function runSchemaTests(): Promise<void> {
   assert.throws(() => parseSchema("{"), /Invalid responseSchemaJson/);
 }
 
+async function runFrameTimestampRefinementTests(): Promise<void> {
+  const calls: unknown[] = [];
+  const ai = {
+    models: {
+      generateContent: async (params: unknown) => {
+        calls.push(params);
+        return {
+          text: JSON.stringify({
+            timestampSeconds: 42.25,
+            reason: "The visual cue appears at this moment.",
+            confidence: 0.8,
+          }),
+        };
+      },
+    },
+  } as unknown as GoogleGenAI;
+
+  const result = await refineFrameTimestampWithGemini(
+    ai,
+    {
+      model: "gemini-test",
+      normalizedYoutubeUrl: "https://www.youtube.com/watch?v=test",
+      timestampSeconds: 40,
+      windowSeconds: 10,
+      refinementPrompt: "Find the title card.",
+    },
+    {
+      logger: {
+        requestId: "test-request",
+        tool: "test-tool",
+        child: () => undefined as never,
+        info: () => undefined,
+        warn: () => undefined,
+        error: () => undefined,
+      },
+      tool: "get_youtube_video_frame",
+      stage: "timestamp_refinement",
+      code: "GEMINI_TIMESTAMP_REFINEMENT_FAILED",
+      failureMessage: "Failed to refine timestamp.",
+      inputMode: "youtube_url",
+      responseMode: "schema_json",
+    }
+  );
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(result, {
+    timestampSeconds: 42.25,
+    reason: "The visual cue appears at this moment.",
+  });
+}
+
 const suites = [
   ["youtube-url", runYouTubeUrlTests],
   ["chunk-planner", runChunkPlannerTests],
   ["batch-planner", runBatchPlannerTests],
   ["schema", runSchemaTests],
+  ["frame-timestamp-refinement", runFrameTimestampRefinementTests],
 ] as const;
 
 async function main(): Promise<void> {
